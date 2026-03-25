@@ -216,7 +216,7 @@ export function runShield(db: Database.Database, dataDir: string): InterferenceE
     if (fs.existsSync(trustPath)) {
       const td = JSON.parse(fs.readFileSync(trustPath, "utf-8"));
       for (const t of (td.scores || [])) {
-        trustMap.set(t.station, t.combined_score || 0);
+        trustMap.set(t.station, t.composite_score ?? t.combined_score ?? 0);
       }
     }
   } catch {}

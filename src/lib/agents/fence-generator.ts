@@ -1,21 +1,16 @@
-// ─── Fence Generator ─────────────────────────────────────────────────────────
-// Takes SENTINEL anomalies + TRUST scores and generates zone updates for the
-// GNSS Wizard. The Wizard then pushes the updated config to the Alberding Caster.
+// ─── Fence Generator V2 ──────────────────────────────────────────────────────
+// Takes SENTINEL V2 anomalies + TRUST V2 scores and generates zone updates.
 //
-// Flow: rtkbi Agents → fence-generator → Wizard API → SSH → Caster
+// Fixed issues from review:
+// - Uses V2 types (composite_score, not combined_score)
+// - Station→Zone lookup via station list membership, not name substring
+// - Handles "excluded" flag from TRUST V2
+// - Connects to SENTINEL V2 anomalies (CUSUM/EWMA/ST-DBSCAN)
 //
-// Actions:
-// 1. DOWNGRADE: Station/region has low trust or active anomaly → lower cascade priority
-// 2. EXCLUDE: Station is untrusted or has critical anomaly → disable zone
-// 3. RESTORE: Station recovered → re-enable zone, restore priority
-// 4. NEW_FENCE: Jamming/interference detected → create exclusion zone
-//
-// Output: fence-actions.json (log) + pushes to Wizard API if WIZARD_URL is set
+// Flow: Agents detect → Fence Generator → Wizard zones.json → Config Engine → Deploy
 
 import fs from "fs";
 import path from "path";
-import type { SentinelAnomaly } from "./sentinel";
-import type { StationTrust } from "./trust";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -41,39 +36,36 @@ interface WizardZone {
   geofence: any;
   color: string;
   priority: number;
+  stations?: string[]; // Zone Generator V2 includes station list
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-const WIZARD_URL = process.env.WIZARD_URL || "";          // e.g. https://gnss-wizard.onrender.com
-const WIZARD_API_KEY = process.env.WIZARD_API_KEY || "";   // X-API-Key for Wizard auth
-const WIZARD_USER = process.env.WIZARD_USER || "";         // Basic Auth fallback
-const WIZARD_PASS = process.env.WIZARD_PASS || "";
-const AUTO_PUSH = process.env.FENCE_AUTO_PUSH === "true";  // Only push if explicitly enabled
-const AUTO_DEPLOY = process.env.FENCE_AUTO_DEPLOY === "true"; // Trigger caster deploy after zone updates
+const AUTO_PUSH = process.env.FENCE_AUTO_PUSH === "true";
+const AUTO_DEPLOY = process.env.FENCE_AUTO_DEPLOY === "true";
 
-// Priority thresholds
-const DOWNGRADE_TRUST_THRESHOLD = 0.5;   // Trust < 0.5 → increase priority number (lower priority)
-const EXCLUDE_TRUST_THRESHOLD = 0.3;     // Trust < 0.3 → disable zone entirely
-const RESTORE_TRUST_THRESHOLD = 0.7;     // Trust recovers above 0.7 → restore
+const DOWNGRADE_TRUST_THRESHOLD = 0.5;
+const EXCLUDE_TRUST_THRESHOLD = 0.3;
+const RESTORE_TRUST_THRESHOLD = 0.7;
 
 // ─── Core Function ──────────────────────────────────────────────────────────
 
 export async function generateFenceActions(
-  anomalies: SentinelAnomaly[],
-  trustScores: StationTrust[],
+  anomalies: any[], // Accepts both V1 and V2 anomaly formats
+  trustScores: any[], // Accepts both V1 and V2 trust formats
   dataDir: string,
 ): Promise<FenceAction[]> {
   const now = new Date();
   const actions: FenceAction[] = [];
 
-  // Build lookup maps
-  const trustMap = new Map<string, StationTrust>();
+  // Build trust lookup (handle both V1 combined_score and V2 composite_score)
+  const trustMap = new Map<string, any>();
   for (const t of trustScores) {
     trustMap.set(t.station, t);
   }
 
-  const anomalyByStation = new Map<string, SentinelAnomaly[]>();
+  // Build anomaly lookup by station
+  const anomalyByStation = new Map<string, any[]>();
   for (const a of anomalies) {
     if (a.station) {
       if (!anomalyByStation.has(a.station)) anomalyByStation.set(a.station, []);
@@ -81,110 +73,79 @@ export async function generateFenceActions(
     }
   }
 
-  // Load current Wizard zones (if available)
-  const currentZones = await fetchWizardZones();
+  // Load current zones (from wizard data or zone-generation.json)
+  const currentZones = loadZones(dataDir);
+
+  // Build station→zone index (FIX: proper lookup instead of name substring)
+  const stationToZones = new Map<string, WizardZone[]>();
+  for (const zone of currentZones) {
+    const stationList = zone.stations || [];
+    for (const stationName of stationList) {
+      if (!stationToZones.has(stationName)) stationToZones.set(stationName, []);
+      stationToZones.get(stationName)!.push(zone);
+    }
+  }
 
   // ── 1. Trust-based actions ────────────────────────────────────────────────
 
   for (const trust of trustScores) {
-    if (trust.flag === "new") continue; // Not enough data yet
+    const compositeScore = trust.composite_score ?? trust.combined_score ?? 0;
+    const flag = trust.flag || "new";
+    if (flag === "new") continue;
 
-    const existingZone = findZoneForStation(currentZones, trust.station);
+    const stationZones = stationToZones.get(trust.station) || [];
 
-    if (trust.combined_score < EXCLUDE_TRUST_THRESHOLD && trust.flag === "untrusted") {
-      actions.push({
-        id: `fence_exclude_${trust.station}_${now.getTime()}`,
-        action: "exclude",
-        zone_id: existingZone?.id || null,
-        station: trust.station,
-        reason: `Trust score ${trust.combined_score.toFixed(3)} below exclusion threshold (${EXCLUDE_TRUST_THRESHOLD}). Beta(${trust.alpha.toFixed(1)},${trust.beta.toFixed(1)}). Flag: ${trust.flag}.`,
-        priority_before: existingZone?.priority || null,
-        priority_after: null,
-        geofence: null,
-        pushed: false,
-        pushed_at: null,
-        created_at: now.toISOString(),
-      });
-    } else if (trust.combined_score < DOWNGRADE_TRUST_THRESHOLD && trust.flag === "probation") {
-      const newPriority = existingZone ? Math.min(99, existingZone.priority + 20) : 80;
-      actions.push({
-        id: `fence_downgrade_${trust.station}_${now.getTime()}`,
-        action: "downgrade",
-        zone_id: existingZone?.id || null,
-        station: trust.station,
-        reason: `Trust score ${trust.combined_score.toFixed(3)} in probation range. Lowering cascade priority.`,
-        priority_before: existingZone?.priority || null,
-        priority_after: newPriority,
-        geofence: null,
-        pushed: false,
-        pushed_at: null,
-        created_at: now.toISOString(),
-      });
-    }
-  }
-
-  // ── 2. Anomaly-based actions ──────────────────────────────────────────────
-
-  for (const anomaly of anomalies) {
-    if (anomaly.severity !== "critical") continue; // Only act on critical anomalies
-
-    if (anomaly.type === "mass_disconnect" || anomaly.type === "jamming_suspect") {
-      // Create exclusion geofence around affected area
-      if (anomaly.region) {
-        actions.push({
-          id: `fence_jamming_${anomaly.id}`,
-          action: "new_fence",
-          zone_id: null,
-          station: anomaly.station,
-          reason: `${anomaly.type}: ${anomaly.affected_users} users affected. ${anomaly.recommended_action}`,
-          priority_before: null,
-          priority_after: 99, // Lowest priority
-          geofence: {
-            type: "circle",
-            lat: anomaly.region.lat,
-            lon: anomaly.region.lon,
-            radius: anomaly.region.radius_km * 1000, // Convert to meters
-          },
-          pushed: false,
-          pushed_at: null,
-          created_at: now.toISOString(),
-        });
+    // Handle TRUST V2 "excluded" flag
+    if (flag === "excluded") {
+      for (const zone of stationZones) {
+        if (zone.enabled) {
+          actions.push({
+            id: `fence_exclude_${trust.station}_${now.getTime()}`,
+            action: "exclude",
+            zone_id: zone.id,
+            station: trust.station,
+            reason: `TRUST V2 excluded: ${trust.excluded_reason || `composite ${compositeScore} below threshold`}`,
+            priority_before: zone.priority,
+            priority_after: null,
+            geofence: null,
+            pushed: false,
+            pushed_at: null,
+            created_at: now.toISOString(),
+          });
+        }
       }
+      continue;
     }
 
-    if (anomaly.station && (anomaly.type === "cusum_fix_drift" || anomaly.type === "ewma_fix_drop")) {
-      const existingZone = findZoneForStation(currentZones, anomaly.station);
-      actions.push({
-        id: `fence_anomaly_${anomaly.id}`,
-        action: "downgrade",
-        zone_id: existingZone?.id || null,
-        station: anomaly.station,
-        reason: `${anomaly.type}: fix rate ${anomaly.current_value}% vs baseline ${anomaly.baseline_value}% (${anomaly.method} detected).`,
-        priority_before: existingZone?.priority || null,
-        priority_after: existingZone ? Math.min(99, existingZone.priority + 30) : 90,
-        geofence: null,
-        pushed: false,
-        pushed_at: null,
-        created_at: now.toISOString(),
-      });
-    }
-  }
-
-  // ── 3. Restore actions (stations that recovered) ──────────────────────────
-
-  for (const trust of trustScores) {
-    if (trust.combined_score >= RESTORE_TRUST_THRESHOLD && trust.flag === "trusted") {
-      const existingZone = findZoneForStation(currentZones, trust.station);
-      // Only restore if it was previously downgraded (priority > 50)
-      if (existingZone && existingZone.priority > 50) {
+    if (compositeScore < EXCLUDE_TRUST_THRESHOLD && flag === "untrusted") {
+      for (const zone of stationZones) {
+        if (zone.enabled) {
+          actions.push({
+            id: `fence_exclude_${trust.station}_${now.getTime()}`,
+            action: "exclude",
+            zone_id: zone.id,
+            station: trust.station,
+            reason: `Trust composite ${compositeScore.toFixed(3)} below exclusion threshold (${EXCLUDE_TRUST_THRESHOLD}). Flag: ${flag}.`,
+            priority_before: zone.priority,
+            priority_after: null,
+            geofence: null,
+            pushed: false,
+            pushed_at: null,
+            created_at: now.toISOString(),
+          });
+        }
+      }
+    } else if (compositeScore < DOWNGRADE_TRUST_THRESHOLD && flag === "probation") {
+      for (const zone of stationZones) {
+        const newPriority = Math.min(99, zone.priority + 20);
         actions.push({
-          id: `fence_restore_${trust.station}_${now.getTime()}`,
-          action: "restore",
-          zone_id: existingZone.id,
+          id: `fence_downgrade_${trust.station}_${now.getTime()}`,
+          action: "downgrade",
+          zone_id: zone.id,
           station: trust.station,
-          reason: `Trust recovered to ${trust.combined_score.toFixed(3)}. Restoring normal priority.`,
-          priority_before: existingZone.priority,
-          priority_after: 10, // Default normal priority
+          reason: `Trust composite ${compositeScore.toFixed(3)} in probation. Lowering cascade priority.`,
+          priority_before: zone.priority,
+          priority_after: newPriority,
           geofence: null,
           pushed: false,
           pushed_at: null,
@@ -194,28 +155,86 @@ export async function generateFenceActions(
     }
   }
 
-  // ── 4. Push to Wizard (if enabled) ────────────────────────────────────────
+  // ── 2. Anomaly-based actions ──────────────────────────────────────────────
 
-  if (AUTO_PUSH && WIZARD_URL && actions.length > 0) {
-    let pushedCount = 0;
-    for (const action of actions) {
-      try {
-        await pushActionToWizard(action);
-        action.pushed = true;
-        action.pushed_at = new Date().toISOString();
-        pushedCount++;
-      } catch (err) {
-        console.error(`[FENCE] Failed to push action ${action.id}:`, err);
+  for (const anomaly of anomalies) {
+    if (anomaly.severity !== "critical") continue;
+
+    // Interference clusters → create exclusion geofence
+    if ((anomaly.type === "mass_disconnect" || anomaly.type === "interference_cluster" ||
+         anomaly.type === "jamming_suspect") && anomaly.region) {
+      actions.push({
+        id: `fence_interference_${anomaly.id || now.getTime()}`,
+        action: "new_fence",
+        zone_id: null,
+        station: anomaly.station,
+        reason: `${anomaly.type}: ${anomaly.affected_users} users affected. ${anomaly.recommended_action || ""}`,
+        priority_before: null,
+        priority_after: 99,
+        geofence: {
+          type: "circle",
+          lat: anomaly.region.lat,
+          lon: anomaly.region.lon,
+          radius: anomaly.region.radius_km * 1000,
+        },
+        pushed: false,
+        pushed_at: null,
+        created_at: now.toISOString(),
+      });
+    }
+
+    // Station-specific anomalies (CUSUM/EWMA) → downgrade station's zones
+    if (anomaly.station && (anomaly.type === "cusum_fix_drift" || anomaly.type === "ewma_fix_drop" ||
+        anomaly.type === "fix_rate_drop")) {
+      const stationZones = stationToZones.get(anomaly.station) || [];
+      for (const zone of stationZones) {
+        actions.push({
+          id: `fence_anomaly_${anomaly.id || now.getTime()}`,
+          action: "downgrade",
+          zone_id: zone.id,
+          station: anomaly.station,
+          reason: `${anomaly.type}: fix ${anomaly.current_value}% vs baseline ${anomaly.baseline_value}%${anomaly.method ? ` (${anomaly.method})` : ""}.`,
+          priority_before: zone.priority,
+          priority_after: Math.min(99, zone.priority + 30),
+          geofence: null,
+          pushed: false,
+          pushed_at: null,
+          created_at: now.toISOString(),
+        });
       }
     }
+  }
 
-    // Trigger config regeneration on Wizard after zone updates
-    if (pushedCount > 0) {
-      try {
-        const deployed = await triggerWizardDeploy();
-        if (deployed) console.log(`[FENCE] Wizard config regenerated after ${pushedCount} zone updates`);
-      } catch {}
+  // ── 3. Restore actions ────────────────────────────────────────────────────
+
+  for (const trust of trustScores) {
+    const compositeScore = trust.composite_score ?? trust.combined_score ?? 0;
+    if (compositeScore < RESTORE_TRUST_THRESHOLD || trust.flag !== "trusted") continue;
+
+    const stationZones = stationToZones.get(trust.station) || [];
+    for (const zone of stationZones) {
+      if (!zone.enabled || zone.priority > 50) {
+        actions.push({
+          id: `fence_restore_${trust.station}_${now.getTime()}`,
+          action: "restore",
+          zone_id: zone.id,
+          station: trust.station,
+          reason: `Trust recovered to ${compositeScore.toFixed(3)}. Restoring normal priority.`,
+          priority_before: zone.priority,
+          priority_after: 10,
+          geofence: null,
+          pushed: false,
+          pushed_at: null,
+          created_at: now.toISOString(),
+        });
+      }
     }
+  }
+
+  // ── 4. Apply to local wizard zones.json ────────────────────────────────────
+
+  if (actions.length > 0) {
+    applyActionsLocally(actions, dataDir);
   }
 
   // ── 5. Log actions ────────────────────────────────────────────────────────
@@ -228,7 +247,6 @@ export async function generateFenceActions(
     }
   } catch {}
 
-  // Keep last 500 actions
   const allActions = [...actions, ...existingLog].slice(0, 500);
   const tmp = logPath + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify({
@@ -240,7 +258,6 @@ export async function generateFenceActions(
       excludes: actions.filter(a => a.action === "exclude").length,
       restores: actions.filter(a => a.action === "restore").length,
       new_fences: actions.filter(a => a.action === "new_fence").length,
-      auto_push: AUTO_PUSH,
     },
   }));
   fs.renameSync(tmp, logPath);
@@ -248,101 +265,80 @@ export async function generateFenceActions(
   return actions;
 }
 
-// ─── Wizard API Helpers ──────────────────────────────────────────────────────
+// ─── Load Zones (from zone-generation.json which has station lists) ──────────
 
-function wizardHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  // Prefer API Key, fallback to Basic Auth
-  if (WIZARD_API_KEY) {
-    headers["X-API-Key"] = WIZARD_API_KEY;
-  } else if (WIZARD_USER && WIZARD_PASS) {
-    headers["Authorization"] = "Basic " + Buffer.from(`${WIZARD_USER}:${WIZARD_PASS}`).toString("base64");
-  }
-  return headers;
-}
-
-async function fetchWizardZones(): Promise<WizardZone[]> {
-  if (!WIZARD_URL) return [];
+function loadZones(dataDir: string): WizardZone[] {
+  // First try zone-generation.json (has station lists)
   try {
-    const res = await fetch(`${WIZARD_URL}/api/data/zones`, { headers: wizardHeaders() });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Object.values(data).map((z: any) => ({
-      id: z.id, name: z.name, network_id: z.network_id,
-      enabled: z.enabled, geofence: z.geofence, color: z.color, priority: z.priority,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function findZoneForStation(zones: WizardZone[], station: string): WizardZone | null {
-  return zones.find(z => z.name.includes(station)) || null;
-}
-
-async function wizardPatch(key: string, value: any): Promise<boolean> {
-  try {
-    const res = await fetch(`${WIZARD_URL}/api/data/zones`, {
-      method: "PATCH",
-      headers: wizardHeaders(),
-      body: JSON.stringify({ key, value }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function pushActionToWizard(action: FenceAction): Promise<void> {
-  if (!WIZARD_URL) return;
-
-  if (action.action === "exclude" && action.zone_id) {
-    await wizardPatch(action.zone_id, { enabled: false });
-  } else if (action.action === "downgrade" && action.zone_id && action.priority_after) {
-    await wizardPatch(action.zone_id, { priority: action.priority_after });
-  } else if (action.action === "restore" && action.zone_id) {
-    await wizardPatch(action.zone_id, { enabled: true, priority: action.priority_after || 10 });
-  } else if (action.action === "new_fence" && action.geofence) {
-    const zoneId = `integrity_${Date.now()}`;
-    await wizardPatch(zoneId, {
-      id: zoneId,
-      name: `Integrity Exclusion — ${action.reason.substring(0, 50)}`,
-      network_id: "",
-      enabled: true,
-      geofence: action.geofence,
-      color: "#ef4444",
-      priority: 99,
-    });
-  }
-}
-
-// ─── Deploy Trigger ──────────────────────────────────────────────────────────
-// After zone updates, trigger the Wizard to generate config + SSH push to Caster.
-// Requires SSH credentials to be configured in the Wizard UI (session-based).
-// This triggers a config regeneration — the Wizard handles the actual SSH upload.
-
-export async function triggerWizardDeploy(): Promise<boolean> {
-  if (!WIZARD_URL || !AUTO_DEPLOY) return false;
-  try {
-    // Step 1: Generate config
-    const genRes = await fetch(`${WIZARD_URL}/api/config/generate`, {
-      method: "POST",
-      headers: wizardHeaders(),
-    });
-    if (!genRes.ok) {
-      console.error("[FENCE] Config generation failed:", genRes.status);
-      return false;
+    const zgPath = path.join(dataDir, "zone-generation.json");
+    if (fs.existsSync(zgPath)) {
+      const zg = JSON.parse(fs.readFileSync(zgPath, "utf-8"));
+      return (zg.zones || []).map((z: any) => ({
+        id: z.id,
+        name: z.name,
+        network_id: z.network_id,
+        enabled: z.enabled,
+        geofence: z.geofence,
+        color: z.color,
+        priority: z.priority,
+        stations: z.stations || [],
+      }));
     }
-    console.log("[FENCE] Config generated on Wizard");
+  } catch {}
 
-    // Note: actual SSH upload requires deploy credentials which are session-based
-    // in the Wizard. For automated deploy, the Wizard would need persistent
-    // deploy credentials (future: DEPLOY_HOST, DEPLOY_KEY env vars on Wizard).
-    // For now, config is generated and ready for manual deploy via Wizard UI.
+  // Fallback: wizard zones.json (no station lists)
+  try {
+    const wzPath = path.join(dataDir, "wizard", "zones.json");
+    if (fs.existsSync(wzPath)) {
+      const wz = JSON.parse(fs.readFileSync(wzPath, "utf-8"));
+      return Object.values(wz).map((z: any) => ({
+        id: z.id, name: z.name, network_id: z.network_id,
+        enabled: z.enabled, geofence: z.geofence, color: z.color,
+        priority: z.priority, stations: [],
+      }));
+    }
+  } catch {}
 
-    return true;
-  } catch (err) {
-    console.error("[FENCE] Deploy trigger failed:", err);
-    return false;
+  return [];
+}
+
+// ─── Apply Actions to Local Wizard Zones ─────────────────────────────────────
+
+function applyActionsLocally(actions: FenceAction[], dataDir: string) {
+  const wzDir = path.join(dataDir, "wizard");
+  const zonesPath = path.join(wzDir, "zones.json");
+  if (!fs.existsSync(wzDir)) fs.mkdirSync(wzDir, { recursive: true });
+
+  let zones: Record<string, any> = {};
+  try {
+    if (fs.existsSync(zonesPath)) {
+      zones = JSON.parse(fs.readFileSync(zonesPath, "utf-8"));
+    }
+  } catch {}
+
+  for (const action of actions) {
+    if (action.action === "exclude" && action.zone_id && zones[action.zone_id]) {
+      zones[action.zone_id].enabled = false;
+    } else if (action.action === "downgrade" && action.zone_id && zones[action.zone_id] && action.priority_after) {
+      zones[action.zone_id].priority = action.priority_after;
+    } else if (action.action === "restore" && action.zone_id && zones[action.zone_id]) {
+      zones[action.zone_id].enabled = true;
+      zones[action.zone_id].priority = action.priority_after || 10;
+    } else if (action.action === "new_fence" && action.geofence) {
+      const zoneId = `fence_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      zones[zoneId] = {
+        id: zoneId,
+        name: `Exclusion — ${action.reason.substring(0, 50)}`,
+        network_id: "",
+        enabled: true,
+        geofence: action.geofence,
+        color: "#ef4444",
+        priority: 99,
+      };
+    }
   }
+
+  const tmp = zonesPath + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(zones, null, 2));
+  fs.renameSync(tmp, zonesPath);
 }

@@ -154,13 +154,15 @@ export function runSentinelV2(db: Database.Database, dataDir: string): SentinelV
   const sixHoursAgo = now - 6 * 3600000;
   const anomalies: SentinelV2Anomaly[] = [];
 
-  // Load Kp for adaptive thresholds
+  // Load Kp for adaptive thresholds (try environment.json first, fallback space-weather.json)
   let kp = 0;
   try {
+    const envPath = path.join(dataDir, "environment.json");
     const swPath = path.join(dataDir, "space-weather.json");
-    if (fs.existsSync(swPath)) {
-      const sw = JSON.parse(fs.readFileSync(swPath, "utf-8"));
-      kp = sw.kp_index || 0;
+    const filePath = fs.existsSync(envPath) ? envPath : swPath;
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      kp = data.ionosphere?.kp_index ?? data.kp_index ?? 0;
     }
   } catch {}
 

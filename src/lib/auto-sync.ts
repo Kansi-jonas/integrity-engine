@@ -80,14 +80,22 @@ export function startAutoSync() {
     }
   });
 
-  // ── SENTINEL V2 — every 5 minutes (multi-window CUSUM/EWMA + ST-DBSCAN + cross-network) ──
+  // ── SENTINEL V2 — every 5 minutes at :00 (CUSUM/EWMA + ST-DBSCAN + cross-network) ──
   cron.schedule("*/5 * * * *", () => {
     try {
       const db = openDb();
       const { runSentinelV2 } = require("./agents/sentinel-v2");
       const anomalies = runSentinelV2(db, dataDir);
       db.close();
+
+      // Save SENTINEL anomalies for Fence Generator (FIX: was disconnected)
       if (anomalies.length > 0) {
+        try {
+          const sentinelPath = path.join(dataDir, "sentinel-anomalies.json");
+          const tmp = sentinelPath + ".tmp";
+          fs.writeFileSync(tmp, JSON.stringify({ anomalies, computed_at: new Date().toISOString() }));
+          fs.renameSync(tmp, sentinelPath);
+        } catch {}
         const critical = anomalies.filter((a: any) => a.severity === "critical").length;
         const kpAdj = anomalies.filter((a: any) => a.kp_adjusted).length;
         console.log(`[SENTINEL-V2] ${anomalies.length} anomalies (${critical} critical${kpAdj > 0 ? `, ${kpAdj} Kp-adjusted` : ""})`);
@@ -97,8 +105,8 @@ export function startAutoSync() {
     }
   });
 
-  // ── SHIELD — every 5 minutes (interference classification) ────────────────
-  cron.schedule("*/5 * * * *", () => {
+  // ── SHIELD — every 5 minutes at :02 (staggered to avoid race condition) ───
+  cron.schedule("2-57/5 * * * *", () => {
     try {
       const db = openDb();
       const { runShield } = require("./agents/shield");
@@ -201,12 +209,29 @@ export function startAutoSync() {
         console.error("[ZONE-INTEGRITY] Failed:", err);
       }
 
-      // Step 5: Fence Generator
+      // Step 5: Fence Generator (FIX: now uses SENTINEL V2 + signal-integrity anomalies)
       try {
         const { generateFenceActions } = require("./agents/fence-generator");
-        const actions = await generateFenceActions(integrityAnomalies, trustScores, dataDir);
+        let allAnomalies: any[] = [...integrityAnomalies];
+        // Add SENTINEL V2 anomalies (CUSUM/EWMA/ST-DBSCAN)
+        try {
+          const sentinelPath = path.join(dataDir, "sentinel-anomalies.json");
+          if (fs.existsSync(sentinelPath)) {
+            const sd = JSON.parse(fs.readFileSync(sentinelPath, "utf-8"));
+            allAnomalies.push(...(sd.anomalies || []));
+          }
+        } catch {}
+        // Deduplicate by station + type
+        const seen = new Set<string>();
+        allAnomalies = allAnomalies.filter(a => {
+          const key = `${a.station || "global"}_${a.type}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        const actions = await generateFenceActions(allAnomalies, trustScores, dataDir);
         if (actions.length > 0) {
-          console.log(`[FENCE] ${actions.length} actions (${actions.filter((a: any) => a.pushed).length} pushed)`);
+          console.log(`[FENCE] ${actions.length} actions — ${actions.filter((a: any) => a.action === "exclude").length} excludes, ${actions.filter((a: any) => a.action === "downgrade").length} downgrades`);
         }
       } catch (err) {
         console.error("[FENCE] Failed:", err);

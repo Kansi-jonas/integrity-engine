@@ -61,7 +61,24 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function findProbeTargets(db: Database.Database): ProbeTarget[] {
+export function findProbeTargets(db: Database.Database, dataDir?: string): ProbeTarget[] {
+  // FIX: Kp-adaptive gap threshold (consistent with zone-generator)
+  let gapKm = 40;
+  if (dataDir) {
+    try {
+      const envPath = path.join(dataDir, "environment.json");
+      const swPath = path.join(dataDir, "space-weather.json");
+      const filePath = fs.existsSync(envPath) ? envPath : swPath;
+      if (fs.existsSync(filePath)) {
+        const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        const kp = data.ionosphere?.kp_index ?? data.kp_index ?? 0;
+        if (kp >= 7) gapKm = 20;
+        else if (kp >= 5) gapKm = 28;
+        else if (kp >= 4) gapKm = 34;
+      }
+    } catch {}
+  }
+
   // Load all GEODNET stations with scores
   const geodnetStations = db.prepare(`
     SELECT s.name, s.latitude, s.longitude,
@@ -96,7 +113,7 @@ export function findProbeTargets(db: Database.Database): ProbeTarget[] {
     }
 
     // Case 1: GEODNET gap (no GEODNET station within 40km)
-    if (nearestDist > 40) {
+    if (nearestDist > gapKm) {
       targets.push({
         station: ono.name,
         lat: ono.latitude,
@@ -256,7 +273,7 @@ export async function runOnocoyProber(db: Database.Database, dataDir: string): P
     return [];
   }
 
-  const targets = findProbeTargets(db);
+  const targets = findProbeTargets(db, dataDir);
   if (targets.length === 0) {
     console.log("[ONOCOY-PROBER] No targets found (full GEODNET coverage)");
     return [];

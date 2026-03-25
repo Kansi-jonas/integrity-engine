@@ -209,12 +209,18 @@ function bufferPoints(points: [number, number][], bufferKm: number): [number, nu
   const centLat = points.reduce((s, p) => s + p[0], 0) / points.length;
   const centLon = points.reduce((s, p) => s + p[1], 0) / points.length;
 
+  // FIX: account for longitude compression at high latitudes
+  const lonScale = Math.cos(centLat * Math.PI / 180);
+  const kmPerDegLat = 111.0;
+  const kmPerDegLon = 111.0 * lonScale;
+
   return points.map(([lat, lon]) => {
     const dLat = lat - centLat;
     const dLon = lon - centLon;
-    const dist = Math.sqrt(dLat * dLat + dLon * dLon);
-    if (dist === 0) return [lat + bufferKm / 111, lon] as [number, number];
-    const scale = 1 + (bufferKm / 111) / dist;
+    // Distance in km (corrected for longitude)
+    const distKm = Math.sqrt((dLat * kmPerDegLat) ** 2 + (dLon * kmPerDegLon) ** 2);
+    if (distKm === 0) return [lat + bufferKm / kmPerDegLat, lon] as [number, number];
+    const scale = 1 + bufferKm / distKm;
     return [
       Math.round((centLat + dLat * scale) * 1000000) / 1000000,
       Math.round((centLon + dLon * scale) * 1000000) / 1000000,
@@ -444,12 +450,14 @@ export function generateIntegrityZones(db: Database.Database, dataDir: string): 
       const avgTrust = stations.reduce((s, st) => s + st.trust, 0) / stations.length;
       const hasPlatinum = stations.some(s => s.tier === "platinum");
 
-      // 5-tier priority
+      // 5-tier priority (FIX: gap fill gets higher priority than upgrade)
       let priority: number;
       if (zoneType === "onocoy_gap") {
+        // Gap fill = more important (no GEODNET alternative)
         priority = hasPlatinum ? PRIORITIES.PAID_HIGH : PRIORITIES.PAID_MODERATE;
       } else {
-        priority = hasPlatinum ? PRIORITIES.PAID_HIGH : PRIORITIES.PAID_MODERATE;
+        // Upgrade = lower priority (GEODNET exists as fallback)
+        priority = hasPlatinum ? PRIORITIES.PAID_MODERATE : PRIORITIES.LAST_RESORT;
       }
 
       // Geofence with concave hull
@@ -474,15 +482,9 @@ export function generateIntegrityZones(db: Database.Database, dataDir: string): 
 
       const zoneId = `integrity_ono_${clusterId}`;
 
-      // Anti-flapping check
+      // Anti-flapping: if zone is younger than 6h, keep it unchanged (FIX: was skipping = deleting)
       const existingState = state.zones[zoneId];
-      if (existingState) {
-        const age = now - existingState.created_at;
-        if (age < MIN_ZONE_LIFETIME_MS) {
-          // Zone too young to change — keep existing
-          continue;
-        }
-      }
+      const isYoungZone = existingState && (now - existingState.created_at) < MIN_ZONE_LIFETIME_MS;
 
       zones.push({
         id: zoneId,
