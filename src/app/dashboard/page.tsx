@@ -281,6 +281,14 @@ export default function DashboardPage() {
               </div>
             )}
 
+            {/* Interference Link */}
+            <div className="rounded-lg border bg-white p-4">
+              <Link href="/dashboard/interference" className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-amber-600 transition">
+                <Zap className="h-4 w-4 text-amber-500" /> Interference Detection →
+              </Link>
+              <p className="text-xs text-gray-500 mt-1">SHIELD Agent — Jamming, Spoofing, Iono Classification</p>
+            </div>
+
             {/* Fence Actions */}
             {fences?.actions && fences.actions.length > 0 && (
               <div className="space-y-3">

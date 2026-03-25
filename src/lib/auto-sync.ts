@@ -80,18 +80,36 @@ export function startAutoSync() {
     }
   });
 
-  // ── SENTINEL — every 5 minutes (CUSUM/EWMA) ──────────────────────────────
+  // ── SENTINEL V2 — every 5 minutes (multi-window CUSUM/EWMA + ST-DBSCAN + cross-network) ──
   cron.schedule("*/5 * * * *", () => {
     try {
       const db = openDb();
-      const { runSentinel } = require("./agents/sentinel");
-      const anomalies = runSentinel(db, dataDir);
+      const { runSentinelV2 } = require("./agents/sentinel-v2");
+      const anomalies = runSentinelV2(db, dataDir);
       db.close();
       if (anomalies.length > 0) {
-        console.log(`[SENTINEL] ${anomalies.length} anomalies (${anomalies.filter((a: any) => a.severity === "critical").length} critical)`);
+        const critical = anomalies.filter((a: any) => a.severity === "critical").length;
+        const kpAdj = anomalies.filter((a: any) => a.kp_adjusted).length;
+        console.log(`[SENTINEL-V2] ${anomalies.length} anomalies (${critical} critical${kpAdj > 0 ? `, ${kpAdj} Kp-adjusted` : ""})`);
       }
     } catch (err) {
-      console.error("[SENTINEL] Failed:", err);
+      console.error("[SENTINEL-V2] Failed:", err);
+    }
+  });
+
+  // ── SHIELD — every 5 minutes (interference classification) ────────────────
+  cron.schedule("*/5 * * * *", () => {
+    try {
+      const db = openDb();
+      const { runShield } = require("./agents/shield");
+      const events = runShield(db, dataDir);
+      db.close();
+      if (events.length > 0) {
+        const types = events.map((e: any) => e.classification).join(", ");
+        console.log(`[SHIELD] ${events.length} interference events classified: ${types}`);
+      }
+    } catch (err) {
+      console.error("[SHIELD] Failed:", err);
     }
   });
 
@@ -147,16 +165,17 @@ export function startAutoSync() {
         console.error("[SIGNAL-INTEGRITY] Failed:", err);
       }
 
-      // Step 3: TRUST Agent (Bayesian scoring)
+      // Step 3: TRUST V2 (5-component composite + cross-network + hysteresis)
       let trustScores: any[] = [];
       try {
-        const { runTrust } = require("./agents/trust");
-        trustScores = runTrust(db, dataDir);
+        const { runTrustV2 } = require("./agents/trust-v2");
+        trustScores = runTrustV2(db, dataDir);
+        const excluded = trustScores.filter((t: any) => t.flag === "excluded").length;
         const untrusted = trustScores.filter((t: any) => t.flag === "untrusted").length;
         const probation = trustScores.filter((t: any) => t.flag === "probation").length;
-        console.log(`[TRUST] ${trustScores.length} scored — ${untrusted} untrusted, ${probation} probation`);
+        console.log(`[TRUST-V2] ${trustScores.length} scored — ${excluded} excluded, ${untrusted} untrusted, ${probation} probation`);
       } catch (err) {
-        console.error("[TRUST] Failed:", err);
+        console.error("[TRUST-V2] Failed:", err);
       }
 
       // Step 4: Zone Integrity (if MERIDIAN zones available)
