@@ -41,6 +41,19 @@ export function startAutoSync() {
     }
   });
 
+  // ── rtkbi Historical Sync — every 2 hours ───────────────────────────────
+  cron.schedule("15 */2 * * *", async () => {
+    try {
+      const db = openDb();
+      const { syncFromRtkbi } = require("./rtkbi-sync");
+      const count = await syncFromRtkbi(db, dataDir);
+      if (count > 0) console.log(`[RTKBI-SYNC] ${count} historical sessions imported`);
+      db.close();
+    } catch (err) {
+      console.error("[RTKBI-SYNC] Failed:", err);
+    }
+  });
+
   // ── Station Sync — every 2 hours (GEODNET + ONOCOY) ─────────────────────
   cron.schedule("0 */2 * * *", async () => {
     try {
@@ -191,6 +204,15 @@ export function startAutoSync() {
       const onocoyCount = await syncOnocoyStations(db);
       const sessionCount = await syncSessions(db);
       console.log(`[STARTUP] Initial sync: ${stationCount} GEODNET + ${onocoyCount} ONOCOY stations, ${sessionCount} sessions`);
+
+      // Historical backfill from rtkbi (6 months)
+      try {
+        const { syncFromRtkbi } = require("./rtkbi-sync");
+        const histCount = await syncFromRtkbi(db, dataDir);
+        console.log(`[STARTUP] Historical backfill: ${histCount} sessions from rtkbi`);
+      } catch (err) {
+        console.log("[STARTUP] rtkbi sync skipped (RTKBI_URL not set or unavailable)");
+      }
 
       // Initial space weather fetch
       const { fetchSpaceWeather } = require("./agents/space-weather");
