@@ -120,7 +120,10 @@ export async function syncStations(db: Database.Database): Promise<number> {
 
   try {
     const data = await gfetch("station/list", {});
-    if (!data?.list?.length) return 0;
+    // GEODNET API returns stations as data.list or directly as array
+    const stations = data?.list || (Array.isArray(data) ? data : []);
+    console.log(`[GEODNET-SYNC] Station response: ${typeof data}, keys: ${data ? Object.keys(data).join(",") : "null"}, count: ${stations.length}`);
+    if (!stations.length) return 0;
 
     const now = Date.now();
     const stmt = db.prepare(`
@@ -133,13 +136,13 @@ export async function syncStations(db: Database.Database): Promise<number> {
     `);
 
     const tx = db.transaction(() => {
-      for (const s of data.list) {
+      for (const s of stations) {
         stmt.run(s.name, s.latitude, s.longitude, s.height || 0, s.status || "UNKNOWN", now);
       }
     });
     tx();
 
-    return data.list.length;
+    return stations.length;
   } catch (err) {
     console.error("[GEODNET-SYNC] Stations failed:", err);
     return 0;
