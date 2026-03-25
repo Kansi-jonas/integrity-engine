@@ -47,7 +47,10 @@ interface WizardZone {
 
 const WIZARD_URL = process.env.WIZARD_URL || "";          // e.g. https://gnss-wizard.onrender.com
 const WIZARD_API_KEY = process.env.WIZARD_API_KEY || "";   // X-API-Key for Wizard auth
+const WIZARD_USER = process.env.WIZARD_USER || "";         // Basic Auth fallback
+const WIZARD_PASS = process.env.WIZARD_PASS || "";
 const AUTO_PUSH = process.env.FENCE_AUTO_PUSH === "true";  // Only push if explicitly enabled
+const AUTO_DEPLOY = process.env.FENCE_AUTO_DEPLOY === "true"; // Trigger caster deploy after zone updates
 
 // Priority thresholds
 const DOWNGRADE_TRUST_THRESHOLD = 0.5;   // Trust < 0.5 → increase priority number (lower priority)
@@ -194,14 +197,24 @@ export async function generateFenceActions(
   // ── 4. Push to Wizard (if enabled) ────────────────────────────────────────
 
   if (AUTO_PUSH && WIZARD_URL && actions.length > 0) {
+    let pushedCount = 0;
     for (const action of actions) {
       try {
         await pushActionToWizard(action);
         action.pushed = true;
         action.pushed_at = new Date().toISOString();
+        pushedCount++;
       } catch (err) {
         console.error(`[FENCE] Failed to push action ${action.id}:`, err);
       }
+    }
+
+    // Trigger config regeneration on Wizard after zone updates
+    if (pushedCount > 0) {
+      try {
+        const deployed = await triggerWizardDeploy();
+        if (deployed) console.log(`[FENCE] Wizard config regenerated after ${pushedCount} zone updates`);
+      } catch {}
     }
   }
 
@@ -237,23 +250,26 @@ export async function generateFenceActions(
 
 // ─── Wizard API Helpers ──────────────────────────────────────────────────────
 
+function wizardHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // Prefer API Key, fallback to Basic Auth
+  if (WIZARD_API_KEY) {
+    headers["X-API-Key"] = WIZARD_API_KEY;
+  } else if (WIZARD_USER && WIZARD_PASS) {
+    headers["Authorization"] = "Basic " + Buffer.from(`${WIZARD_USER}:${WIZARD_PASS}`).toString("base64");
+  }
+  return headers;
+}
+
 async function fetchWizardZones(): Promise<WizardZone[]> {
   if (!WIZARD_URL) return [];
   try {
-    const res = await fetch(`${WIZARD_URL}/api/data/zones`, {
-      headers: { "X-API-Key": WIZARD_API_KEY },
-    });
+    const res = await fetch(`${WIZARD_URL}/api/data/zones`, { headers: wizardHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
-    // Wizard returns Record<string, ZoneJSON>
     return Object.values(data).map((z: any) => ({
-      id: z.id,
-      name: z.name,
-      network_id: z.network_id,
-      enabled: z.enabled,
-      geofence: z.geofence,
-      color: z.color,
-      priority: z.priority,
+      id: z.id, name: z.name, network_id: z.network_id,
+      enabled: z.enabled, geofence: z.geofence, color: z.color, priority: z.priority,
     }));
   } catch {
     return [];
@@ -261,73 +277,72 @@ async function fetchWizardZones(): Promise<WizardZone[]> {
 }
 
 function findZoneForStation(zones: WizardZone[], station: string): WizardZone | null {
-  // Try to find a zone that references this station (by name match in zone name)
   return zones.find(z => z.name.includes(station)) || null;
+}
+
+async function wizardPatch(key: string, value: any): Promise<boolean> {
+  try {
+    const res = await fetch(`${WIZARD_URL}/api/data/zones`, {
+      method: "PATCH",
+      headers: wizardHeaders(),
+      body: JSON.stringify({ key, value }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function pushActionToWizard(action: FenceAction): Promise<void> {
   if (!WIZARD_URL) return;
 
   if (action.action === "exclude" && action.zone_id) {
-    // Disable the zone
-    await fetch(`${WIZARD_URL}/api/data/zones`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": WIZARD_API_KEY,
-      },
-      body: JSON.stringify({
-        key: action.zone_id,
-        value: { enabled: false },
-      }),
-    });
+    await wizardPatch(action.zone_id, { enabled: false });
   } else if (action.action === "downgrade" && action.zone_id && action.priority_after) {
-    // Lower priority
-    await fetch(`${WIZARD_URL}/api/data/zones`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": WIZARD_API_KEY,
-      },
-      body: JSON.stringify({
-        key: action.zone_id,
-        value: { priority: action.priority_after },
-      }),
-    });
+    await wizardPatch(action.zone_id, { priority: action.priority_after });
   } else if (action.action === "restore" && action.zone_id) {
-    // Re-enable + restore priority
-    await fetch(`${WIZARD_URL}/api/data/zones`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": WIZARD_API_KEY,
-      },
-      body: JSON.stringify({
-        key: action.zone_id,
-        value: { enabled: true, priority: action.priority_after || 10 },
-      }),
-    });
+    await wizardPatch(action.zone_id, { enabled: true, priority: action.priority_after || 10 });
   } else if (action.action === "new_fence" && action.geofence) {
-    // Create new exclusion zone
     const zoneId = `integrity_${Date.now()}`;
-    await fetch(`${WIZARD_URL}/api/data/zones`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": WIZARD_API_KEY,
-      },
-      body: JSON.stringify({
-        key: zoneId,
-        value: {
-          id: zoneId,
-          name: `Integrity Exclusion — ${action.reason.substring(0, 50)}`,
-          network_id: "", // Applies to all networks
-          enabled: true,
-          geofence: action.geofence,
-          color: "#ef4444", // Red
-          priority: 99,
-        },
-      }),
+    await wizardPatch(zoneId, {
+      id: zoneId,
+      name: `Integrity Exclusion — ${action.reason.substring(0, 50)}`,
+      network_id: "",
+      enabled: true,
+      geofence: action.geofence,
+      color: "#ef4444",
+      priority: 99,
     });
+  }
+}
+
+// ─── Deploy Trigger ──────────────────────────────────────────────────────────
+// After zone updates, trigger the Wizard to generate config + SSH push to Caster.
+// Requires SSH credentials to be configured in the Wizard UI (session-based).
+// This triggers a config regeneration — the Wizard handles the actual SSH upload.
+
+export async function triggerWizardDeploy(): Promise<boolean> {
+  if (!WIZARD_URL || !AUTO_DEPLOY) return false;
+  try {
+    // Step 1: Generate config
+    const genRes = await fetch(`${WIZARD_URL}/api/config/generate`, {
+      method: "POST",
+      headers: wizardHeaders(),
+    });
+    if (!genRes.ok) {
+      console.error("[FENCE] Config generation failed:", genRes.status);
+      return false;
+    }
+    console.log("[FENCE] Config generated on Wizard");
+
+    // Note: actual SSH upload requires deploy credentials which are session-based
+    // in the Wizard. For automated deploy, the Wizard would need persistent
+    // deploy credentials (future: DEPLOY_HOST, DEPLOY_KEY env vars on Wizard).
+    // For now, config is generated and ready for manual deploy via Wizard UI.
+
+    return true;
+  } catch (err) {
+    console.error("[FENCE] Deploy trigger failed:", err);
+    return false;
   }
 }
