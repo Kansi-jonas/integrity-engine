@@ -274,6 +274,17 @@ export function startAutoSync() {
         console.error("[ZONE-GEN] Failed:", err);
       }
 
+      // Step 6c: Session Feedback Loop (validate zones against actual user results)
+      try {
+        const { runSessionFeedback } = require("./agents/session-feedback");
+        const feedback = runSessionFeedback(db, dataDir);
+        if (feedback.zones.length > 0) {
+          console.log(`[SESSION-FEEDBACK] ${feedback.zones.length} zones analyzed — ${feedback.overall.zones_flagged} flagged, mean fix ${feedback.overall.mean_fix_rate}%`);
+        }
+      } catch (err) {
+        console.error("[SESSION-FEEDBACK] Failed:", err);
+      }
+
       // Step 7: ONOCOY Prober (gap-fill + quality compare)
       try {
         const { runOnocoyProber } = require("./agents/onocoy-prober");
