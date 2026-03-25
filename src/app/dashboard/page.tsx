@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import {
   ShieldAlert, ShieldCheck, ShieldX, Radio, Users, Activity,
   AlertTriangle, AlertCircle, CheckCircle2, Info, Loader2, RefreshCw,
@@ -264,7 +265,7 @@ export default function DashboardPage() {
             {/* Trust Summary */}
             {trust?.summary && (
               <div className="space-y-3">
-                <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Station Trust</h2>
+                <Link href="/dashboard/trust" className="text-sm font-semibold text-gray-700 uppercase tracking-wider hover:text-blue-600 transition">Station Trust →</Link>
                 <div className="rounded-lg border bg-white p-4">
                   <div className="grid grid-cols-2 gap-3 text-center">
                     <div><div className="text-lg font-bold text-emerald-600">{trust.summary.trusted}</div><div className="text-[10px] text-gray-500">Trusted</div></div>
