@@ -410,6 +410,14 @@ export default function DashboardPage() {
               <p className="text-xs text-gray-500 mt-1">SHIELD Agent — Jamming, Spoofing, Iono Classification</p>
             </div>
 
+            {/* Config Link */}
+            <div className="rounded-lg border bg-white p-4">
+              <Link href="/dashboard/config" className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-blue-600 transition">
+                <Shield className="h-4 w-4 text-blue-500" /> Caster Config →
+              </Link>
+              <p className="text-xs text-gray-500 mt-1">Zones, Quality Gates, ntrips.cfg, Deploy</p>
+            </div>
+
             {/* Fence Actions */}
             {fences?.actions && fences.actions.length > 0 && (
               <div className="space-y-3">
