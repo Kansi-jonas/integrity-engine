@@ -149,6 +149,80 @@ export async function syncStations(db: Database.Database): Promise<number> {
   }
 }
 
+// ─── ONOCOY Sourcetable Sync ─────────────────────────────────────────────────
+// Fetches station list from ONOCOY NTRIP Sourcetable (no credentials needed).
+// Sourcetable format: STR;mountpoint;...;lat;lon;...
+
+export async function syncOnocoyStations(db: Database.Database): Promise<number> {
+  // Ensure table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stations (
+      name TEXT PRIMARY KEY, latitude REAL, longitude REAL, height REAL,
+      status TEXT DEFAULT 'UNKNOWN', network TEXT DEFAULT 'unknown',
+      last_synced INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+  `);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const onoUser = process.env.ONOCOY_USER || "";
+    const onoPass = process.env.ONOCOY_PASS || "";
+    const authHeader = onoUser ? "Basic " + Buffer.from(`${onoUser}:${onoPass}`).toString("base64") : "";
+
+    const res = await fetch("http://clients.onocoy.com:2101/", {
+      headers: {
+        "User-Agent": "NTRIP RTKdata/1.0",
+        "Ntrip-Version": "Ntrip/2.0",
+        ...(authHeader ? { "Authorization": authHeader } : {}),
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const text = await res.text();
+    const lines = text.split("\n");
+
+    const now = Date.now();
+    const stmt = db.prepare(`
+      INSERT INTO stations (name, latitude, longitude, height, status, network, last_synced)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        latitude = excluded.latitude, longitude = excluded.longitude,
+        height = excluded.height, status = excluded.status,
+        network = excluded.network, last_synced = excluded.last_synced
+    `);
+
+    let count = 0;
+    const tx = db.transaction(() => {
+      for (const line of lines) {
+        if (!line.startsWith("STR;")) continue;
+        // NTRIP Sourcetable STR format:
+        // STR;mountpoint;identifier;format;formatDetails;carrier;navSystem;network;country;lat;lon;...
+        const parts = line.split(";");
+        if (parts.length < 11) continue;
+
+        const name = parts[1];
+        const lat = parseFloat(parts[9]);
+        const lon = parseFloat(parts[10]);
+
+        if (!name || isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue;
+
+        stmt.run(name, lat, lon, 0, "ONLINE", "onocoy", now);
+        count++;
+      }
+    });
+    tx();
+
+    console.log(`[ONOCOY-SYNC] ${count} stations from sourcetable`);
+    return count;
+  } catch (err) {
+    console.error("[ONOCOY-SYNC] Sourcetable fetch failed:", err);
+    return 0;
+  }
+}
+
 // ─── Station Status Snapshot ─────────────────────────────────────────────────
 
 export function snapshotStationStatus(db: Database.Database): void {

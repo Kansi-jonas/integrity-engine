@@ -41,16 +41,17 @@ export function startAutoSync() {
     }
   });
 
-  // ── GEODNET Station Sync — every 2 hours ──────────────────────────────────
+  // ── Station Sync — every 2 hours (GEODNET + ONOCOY) ─────────────────────
   cron.schedule("0 */2 * * *", async () => {
     try {
       const db = openDb();
-      const { syncStations } = require("./geodnet-sync");
-      const count = await syncStations(db);
-      console.log(`[GEODNET-SYNC] ${count} stations synced`);
+      const { syncStations, syncOnocoyStations } = require("./geodnet-sync");
+      const geodnetCount = await syncStations(db);
+      const onocoyCount = await syncOnocoyStations(db);
+      console.log(`[STATION-SYNC] ${geodnetCount} GEODNET + ${onocoyCount} ONOCOY stations`);
       db.close();
     } catch (err) {
-      console.error("[GEODNET-SYNC] Stations failed:", err);
+      console.error("[STATION-SYNC] Failed:", err);
     }
   });
 
@@ -158,10 +159,11 @@ export function startAutoSync() {
     try {
       console.log("[STARTUP] Running initial data sync...");
       const db = openDb();
-      const { syncSessions, syncStations } = require("./geodnet-sync");
+      const { syncSessions, syncStations, syncOnocoyStations } = require("./geodnet-sync");
       const stationCount = await syncStations(db);
+      const onocoyCount = await syncOnocoyStations(db);
       const sessionCount = await syncSessions(db);
-      console.log(`[STARTUP] Initial sync: ${stationCount} stations, ${sessionCount} sessions`);
+      console.log(`[STARTUP] Initial sync: ${stationCount} GEODNET + ${onocoyCount} ONOCOY stations, ${sessionCount} sessions`);
 
       // Initial space weather fetch
       const { fetchSpaceWeather } = require("./agents/space-weather");
