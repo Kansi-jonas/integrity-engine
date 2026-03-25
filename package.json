@@ -21,6 +21,7 @@
     "react-dom": "19.2.3",
     "react-leaflet": "^5.0.0",
     "recharts": "^3.8.0",
+    "ssh2": "^1.17.0",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
@@ -31,6 +32,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ssh2": "^1.15.5",
     "eslint": "^9",
     "eslint-config-next": "16.1.7",
     "tailwindcss": "^4",
