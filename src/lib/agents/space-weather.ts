@@ -180,12 +180,34 @@ export async function fetchSpaceWeather(dataDir: string): Promise<SpaceWeatherDa
     sources: ["NOAA SWPC Kp Index", "NOAA SWPC Solar Wind", "NOAA SWPC Proton Flux"],
   };
 
-  // Persist
+  // Persist current
   try {
     const filePath = path.join(dataDir, "space-weather.json");
     const tmp = filePath + ".tmp";
     fs.writeFileSync(tmp, JSON.stringify(result, null, 2));
     fs.renameSync(tmp, filePath);
+  } catch {}
+
+  // Append to history (keep last 7 days = ~168 hourly entries)
+  try {
+    const historyPath = path.join(dataDir, "space-weather-history.json");
+    let history: Array<{ kp: number; bz: number; storm: string; ts: string }> = [];
+    try {
+      if (fs.existsSync(historyPath)) {
+        history = JSON.parse(fs.readFileSync(historyPath, "utf-8"));
+      }
+    } catch {}
+    history.push({
+      kp: kp.current,
+      bz: solarWind.bz,
+      storm: result.storm_level,
+      ts: new Date().toISOString(),
+    });
+    // Keep last 168 entries (7 days at hourly)
+    if (history.length > 168) history = history.slice(-168);
+    const tmp2 = historyPath + ".tmp";
+    fs.writeFileSync(tmp2, JSON.stringify(history));
+    fs.renameSync(tmp2, historyPath);
   } catch {}
 
   return result;

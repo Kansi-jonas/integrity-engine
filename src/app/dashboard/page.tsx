@@ -51,6 +51,12 @@ interface FenceData {
   last_run: string;
 }
 
+interface CorrelationData {
+  data: Array<{ time: string; fix_rate: number; correction_age: number; sessions: number; users: number; kp: number | null; bz: number | null; storm: string | null }>;
+  correlation_kp_fix: number;
+  data_points: number;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const ANOMALY_LABELS: Record<string, string> = {
@@ -91,6 +97,7 @@ export default function DashboardPage() {
   const [trust, setTrust] = useState<TrustData | null>(null);
   const [weather, setWeather] = useState<SpaceWeather | null>(null);
   const [fences, setFences] = useState<FenceData | null>(null);
+  const [correlation, setCorrelation] = useState<CorrelationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -101,8 +108,9 @@ export default function DashboardPage() {
       fetch("/api/trust").then(r => r.json()).catch(() => null),
       fetch("/api/space-weather").then(r => r.json()).catch(() => null),
       fetch("/api/fences").then(r => r.json()).catch(() => null),
-    ]).then(([s, t, w, f]) => {
-      setSignal(s); setTrust(t); setWeather(w); setFences(f);
+      fetch("/api/correlation").then(r => r.json()).catch(() => null),
+    ]).then(([s, t, w, f, c]) => {
+      setSignal(s); setTrust(t); setWeather(w); setFences(f); setCorrelation(c);
     }).finally(() => setLoading(false));
   };
 
@@ -269,6 +277,58 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* Ionospheric Correlation — Kp Index vs Fix Rate */}
+        {correlation?.data && correlation.data.length > 5 && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                Ionospheric Impact — Kp Index vs Fix Rate
+              </h2>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-gray-500">
+                  Pearson r = <span className={`font-mono font-medium ${(correlation.correlation_kp_fix ?? 0) < -0.3 ? "text-red-600" : "text-gray-700"}`}>
+                    {correlation.correlation_kp_fix}
+                  </span>
+                </span>
+                <span className="text-gray-400">{correlation.data_points} data points</span>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-white p-4">
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={correlation.data.slice(-72).map((d: any) => ({
+                  ...d,
+                  time: new Date(d.time).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }),
+                  kp_scaled: d.kp !== null ? d.kp * 10 : null,
+                }))}>
+                  <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                  <YAxis yAxisId="fix" domain={[0, 100]} tick={{ fontSize: 10 }} />
+                  <YAxis yAxisId="kp" orientation="right" domain={[0, 90]} tick={{ fontSize: 10 }} tickFormatter={(v: number) => `Kp ${(v / 10).toFixed(0)}`} />
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div className="bg-white border border-gray-200 rounded px-3 py-2 shadow text-xs space-y-1">
+                        <div className="font-medium">{d.time}</div>
+                        <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Fix Rate: {d.fix_rate}%</div>
+                        {d.kp !== null && <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> Kp Index: {d.kp}</div>}
+                        <div className="text-gray-500">{d.sessions} sessions, {d.users} users</div>
+                        {d.storm && d.storm !== "none" && <div className="text-red-600 font-medium">Storm: {d.storm}</div>}
+                      </div>
+                    );
+                  }} />
+                  <Line yAxisId="fix" type="monotone" dataKey="fix_rate" stroke="#3b82f6" strokeWidth={2} dot={false} name="Fix Rate %" />
+                  <Line yAxisId="kp" type="stepAfter" dataKey="kp_scaled" stroke="#d97706" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="Kp Index" />
+                </LineChart>
+              </ResponsiveContainer>
+              <div className="flex items-center justify-center gap-6 mt-2 text-xs text-gray-500">
+                <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-blue-500 inline-block" /> Fix Rate</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-amber-500 inline-block border-dashed" /> Kp Index</span>
+                <span className="text-gray-400">Last 72 hours</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Station Health Timelines */}
         {signal?.station_timelines && signal.station_timelines.length > 0 && (
