@@ -1,5 +1,6 @@
 'use client'
 import React, { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -87,13 +88,13 @@ export default function Sidebar() {
         collapsed ? 'justify-center px-2 py-4' : 'px-4 py-4',
       )}>
         {collapsed ? (
-          <div className="w-8 h-8 rounded-full bg-[#0067ff] flex items-center justify-center text-white font-bold text-sm">R</div>
+          <div className="w-8 h-8 relative flex-shrink-0">
+            <Image src="/logo.png" alt="RTKdata" fill style={{ objectFit: 'contain' }} />
+          </div>
         ) : (
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-[#0067ff] flex items-center justify-center text-white font-bold text-xs">R</div>
-            <div>
-              <div className="text-sm font-semibold text-gray-900">RTKdata</div>
-              <div className="text-[10px] text-gray-400">Integrity Engine</div>
+            <div className="relative h-8 w-36">
+              <Image src="/logo.png" alt="RTKdata" fill style={{ objectFit: 'contain', objectPosition: 'left' }} priority />
             </div>
           </div>
         )}

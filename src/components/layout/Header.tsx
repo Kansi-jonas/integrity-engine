@@ -9,17 +9,23 @@ import { useConfigStore, selectIsDirty, selectShowBackendDetails } from '@/store
 import { cn } from '@/lib/utils'
 
 const PAGE_TITLES: Record<string, { title: string; description: string }> = {
-  '/': { title: 'Dashboard', description: 'System overview and quick actions' },
-  '/users': { title: 'Users & Groups', description: 'Manage NTRIP caster users and access groups' },
-  '/networks': { title: 'Networks', description: 'Upstream NTRIP network endpoints (GEODNET, Onocoy, ...)' },
-  '/network-mountpoints': { title: 'Network Mountpoints', description: 'Available mountpoints at each network' },
-  '/mountpoints': { title: 'RTKdata Mountpoints', description: 'Customer-facing mountpoints with backend cascade' },
-  '/zones': { title: 'MERIDIAN Zones', description: 'Geographic coverage zones with interactive map and MERIDIAN overlay' },
-  '/streams': { title: 'Streams', description: 'Advanced stream configuration' },
-  '/settings': { title: 'Settings', description: 'Caster-wide configuration options' },
-  '/config': { title: 'Config Preview', description: 'Generated ntrips.cfg output' },
-  '/validation': { title: 'Validation', description: 'Configuration check' },
-  '/deploy': { title: 'Deploy', description: 'Upload and activate configuration on the caster' },
+  '/dashboard': { title: 'Integrity Overview', description: 'Signal integrity monitoring and anomaly detection' },
+  '/dashboard/trust': { title: 'Station Trust', description: 'Bayesian trust scoring with Beta distributions' },
+  '/dashboard/interference': { title: 'Interference Detection', description: 'SHIELD agent — jamming, spoofing, ionospheric classification' },
+  '/dashboard/config': { title: 'Quality Gates', description: 'Qualified stations and caster configuration' },
+  '/dashboard/wizard': { title: 'GNSS Wizard', description: 'Zone management, networks, and caster deployment' },
+  '/dashboard/wizard/users': { title: 'Users & Groups', description: 'Manage NTRIP caster users and access groups' },
+  '/dashboard/wizard/networks': { title: 'Networks', description: 'Upstream NTRIP network endpoints (GEODNET, Onocoy, ...)' },
+  '/dashboard/wizard/network-mountpoints': { title: 'Network Mountpoints', description: 'Available mountpoints at each network' },
+  '/dashboard/wizard/mountpoints': { title: 'RTKdata Mountpoints', description: 'Customer-facing mountpoints with backend cascade' },
+  '/dashboard/wizard/zones': { title: 'MERIDIAN Zones', description: 'Geographic coverage zones with interactive map' },
+  '/dashboard/wizard/streams': { title: 'Streams', description: 'Advanced stream configuration' },
+  '/dashboard/wizard/accounts': { title: 'Accounts', description: 'Upstream credential mapping for networks' },
+  '/dashboard/wizard/settings': { title: 'Settings', description: 'Caster-wide configuration options' },
+  '/dashboard/wizard/quality-scans': { title: 'Quality Scans', description: 'NTRIP quality testing and scheduling' },
+  '/dashboard/wizard/config-preview': { title: 'Config Preview', description: 'Generated ntrips.cfg output' },
+  '/dashboard/wizard/validation': { title: 'Validation', description: 'Configuration check results' },
+  '/dashboard/wizard/deploy': { title: 'Deploy', description: 'Upload and activate configuration on the caster' },
 }
 
 interface HeaderProps {

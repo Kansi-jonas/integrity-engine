@@ -1,31 +1,143 @@
+/* ── Google Fonts — must come before tailwindcss (which emits @layer) ── */
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
-@import "tailwindcss";
 
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ── RTKdata Brand Tokens ─────────────────────────────────────────────── */
 @theme inline {
   --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+
+  /* Brand */
   --color-brand: #0067ff;
   --color-brand-hover: #005ee9;
   --color-brand-light: #e8f0fe;
+
+  /* Backgrounds */
   --color-background: #ffffff;
   --color-surface: #f4f4f4;
+  --color-surface-elevated: #ffffff;
   --color-border: #e5e7eb;
+  --color-border-subtle: rgba(229, 231, 235, 0.8);
+
+  /* Text */
   --color-text-primary: #111827;
   --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+
+  /* Status */
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --color-success: #16a34a;
+
+  /* Zone colors for map */
+  --color-zone-blue: #3b82f6;
+  --color-zone-purple: #8b5cf6;
+  --color-zone-orange: #f97316;
+  --color-zone-pink: #ec4899;
+  --color-zone-cyan: #06b6d4;
+  --color-zone-yellow: #eab308;
 }
 
-body {
-  background: var(--color-background);
-  color: var(--color-text-primary);
-  font-family: var(--font-sans);
+/* ── Base styles ─────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #ffffff;
+    color: #111827;
+    height: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #__next,
+  main {
+    height: 100%;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #f4f4f4;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+  }
+
+  /* Selection */
+  ::selection {
+    background-color: rgba(0, 103, 255, 0.15);
+    color: #111827;
+  }
 }
 
-::selection {
-  background: var(--color-brand-light);
-  color: var(--color-brand);
-}
+/* ── Code / Config display ─────────────────────────────────────────────── */
+@layer components {
+  .config-block {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    color: #e2e8f0;
+  }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+  /* Syntax highlighting classes */
+  .token-directive { color: #60a5fa; font-weight: 500; }
+  .token-key { color: #a78bfa; }
+  .token-url { color: #34d399; }
+  .token-comment { color: #94a3b8; font-style: italic; }
+  .token-value { color: #fbbf24; }
+  .token-section { color: #cbd5e1; font-weight: 500; }
+
+  /* Status indicators */
+  .status-dot-green { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; }
+  .status-dot-red { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
+
+  /* MERIDIAN zone tooltip */
+  .meridian-tooltip {
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    border-radius: 6px;
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.55;
+    padding: 6px 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    white-space: normal;
+  }
+  .meridian-tooltip::before { display: none; }
+  .meridian-tooltip-clean {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  .meridian-tooltip-clean::before { display: none !important; }
+  .status-dot-amber { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
+}
