@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: rtkdata-integrity
+    runtime: docker
+    plan: standard
+    disk:
+      name: integrity-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: DB_PATH
+        value: /data/integrity.db
+      - key: GEODNET_APP_ID
+        sync: false
+      - key: GEODNET_APP_KEY
+        sync: false
+      - key: AUTH_USER
+        sync: false
+      - key: AUTH_PASS
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: WIZARD_URL
+        sync: false
+      - key: WIZARD_API_KEY
+        sync: false
+      - key: FENCE_AUTO_PUSH
+        value: "false"
