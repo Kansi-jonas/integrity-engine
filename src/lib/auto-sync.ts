@@ -221,6 +221,17 @@ export function startAutoSync() {
         console.error("[CONFIG-GEN] Failed:", err);
       }
 
+      // Step 6b: Generate optimal zones from qualified stations
+      try {
+        const { generateIntegrityZones } = require("./wizard/zone-generator");
+        const zones = generateIntegrityZones(db, dataDir);
+        const gapZones = zones.filter((z: any) => z.zone_type === "onocoy_gap").length;
+        const upgradeZones = zones.filter((z: any) => z.zone_type === "onocoy_upgrade").length;
+        console.log(`[ZONE-GEN] ${zones.length} zones (GEODNET primary, ${gapZones} ONOCOY gaps, ${upgradeZones} ONOCOY upgrades)`);
+      } catch (err) {
+        console.error("[ZONE-GEN] Failed:", err);
+      }
+
       // Step 7: ONOCOY Prober (gap-fill + quality compare)
       try {
         const { runOnocoyProber } = require("./agents/onocoy-prober");
