@@ -106,6 +106,7 @@ export default function DashboardPage() {
   const [fences, setFences] = useState<FenceData | null>(null);
   const [correlation, setCorrelation] = useState<CorrelationData | null>(null);
   const [mapData, setMapData] = useState<any>(null);
+  const [env, setEnv] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -118,8 +119,9 @@ export default function DashboardPage() {
       fetch("/api/fences").then(r => r.json()).catch(() => null),
       fetch("/api/correlation").then(r => r.json()).catch(() => null),
       fetch("/api/map").then(r => r.json()).catch(() => null),
-    ]).then(([s, t, w, f, c, m]) => {
-      setSignal(s); setTrust(t); setWeather(w); setFences(f); setCorrelation(c); setMapData(m);
+      fetch("/api/environment").then(r => r.json()).catch(() => null),
+    ]).then(([s, t, w, f, c, m, e]) => {
+      setSignal(s); setTrust(t); setWeather(w); setFences(f); setCorrelation(c); setMapData(m); setEnv(e);
     }).finally(() => setLoading(false));
   };
 
@@ -187,6 +189,125 @@ export default function DashboardPage() {
             {weather.expected_impact.affected_regions.length > 0 && (
               <p className="text-xs text-gray-500 mt-1">Affected: {weather.expected_impact.affected_regions.join(", ")}</p>
             )}
+          </div>
+        )}
+
+        {/* Environment Panel */}
+        {env && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Ionosphere */}
+            <div className="rounded-lg border bg-white p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1">
+                <CloudLightning className="h-3.5 w-3.5 text-purple-500" /> Ionosphere
+              </h3>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-[10px] text-gray-500">Kp</div>
+                  <div className={`text-lg font-bold ${env.ionosphere?.kp_index >= 5 ? "text-red-600" : env.ionosphere?.kp_index >= 4 ? "text-amber-600" : "text-emerald-600"}`}>
+                    {env.ionosphere?.kp_index ?? "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-gray-500">Dst</div>
+                  <div className={`text-lg font-bold ${(env.ionosphere?.dst_index ?? 0) < -50 ? "text-red-600" : (env.ionosphere?.dst_index ?? 0) < -20 ? "text-amber-600" : "text-emerald-600"}`}>
+                    {env.ionosphere?.dst_index ?? "—"}<span className="text-xs font-normal text-gray-400">nT</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-gray-500">Bz</div>
+                  <div className={`text-lg font-bold ${(env.ionosphere?.bz_component ?? 0) < -5 ? "text-red-600" : "text-emerald-600"}`}>
+                    {env.ionosphere?.bz_component ?? "—"}<span className="text-xs font-normal text-gray-400">nT</span>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-gray-50 rounded px-2 py-1">
+                  <span className="text-gray-500">Wind:</span> {env.ionosphere?.solar_wind_speed ?? 0} km/s
+                </div>
+                <div className="bg-gray-50 rounded px-2 py-1">
+                  <span className="text-gray-500">Phase:</span> {env.ionosphere?.storm_phase ?? "quiet"}
+                </div>
+                {env.ionosphere?.flare_class && (
+                  <div className="bg-red-50 rounded px-2 py-1 col-span-2 text-red-700 font-medium">
+                    Solar Flare: {env.ionosphere.flare_class}
+                  </div>
+                )}
+              </div>
+              {env.ionosphere?.expected_fix_impact_pct < 0 && (
+                <div className="text-xs text-amber-700 bg-amber-50 rounded p-2">
+                  Expected Fix Impact: {env.ionosphere.expected_fix_impact_pct}%
+                </div>
+              )}
+            </div>
+
+            {/* Constellation Health */}
+            <div className="rounded-lg border bg-white p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1">
+                <Radio className="h-3.5 w-3.5 text-blue-500" /> Constellation Health
+              </h3>
+              {["gps", "glonass", "galileo", "beidou"].map(sys => {
+                const data = env.constellation?.[sys];
+                if (!data || data.total === 0) return null;
+                const pct = data.total > 0 ? Math.round((data.healthy / data.total) * 100) : 0;
+                return (
+                  <div key={sys} className="flex items-center gap-2">
+                    <span className="text-xs text-gray-600 w-16 uppercase">{sys}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                      <div className={`h-full rounded-full ${pct >= 90 ? "bg-emerald-500" : pct >= 70 ? "bg-amber-500" : "bg-red-500"}`}
+                        style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs font-mono w-14 text-right">{data.healthy}/{data.total}</span>
+                  </div>
+                );
+              })}
+              <div className="text-xs text-gray-500 text-center pt-1 border-t">
+                {env.constellation?.total_healthy ?? 0} healthy / {(env.constellation?.total_healthy ?? 0) + (env.constellation?.total_unhealthy ?? 0)} total
+              </div>
+            </div>
+
+            {/* Troposphere + CME + Tides */}
+            <div className="rounded-lg border bg-white p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1">
+                <Activity className="h-3.5 w-3.5 text-cyan-500" /> Troposphere & Forecast
+              </h3>
+              {/* Tropo regions */}
+              {env.troposphere?.regions?.length > 0 && (
+                <div className="space-y-1.5">
+                  {env.troposphere.regions.slice(0, 4).map((r: any) => (
+                    <div key={r.name} className="flex items-center gap-2 text-xs">
+                      <span className="text-gray-600 w-20 truncate">{r.name}</span>
+                      <span className="text-gray-500">{r.temperature_c}°C</span>
+                      <span className="text-gray-500">{r.humidity_pct}%</span>
+                      <span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                        r.tropo_delay_risk === "high" ? "bg-red-100 text-red-700" :
+                        r.tropo_delay_risk === "medium" ? "bg-amber-100 text-amber-700" :
+                        "bg-emerald-100 text-emerald-700"
+                      }`}>{r.tropo_delay_risk}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* CME Forecast */}
+              {env.cme_forecast?.length > 0 && (
+                <div className="pt-2 border-t space-y-1">
+                  <div className="text-[10px] font-medium text-gray-500 uppercase">CME Forecast</div>
+                  {env.cme_forecast.slice(0, 2).map((cme: any, i: number) => (
+                    <div key={i} className="text-xs bg-purple-50 rounded p-1.5 text-purple-800">
+                      {cme.speed_km_s} km/s — est. Kp {cme.expected_kp}
+                      {cme.expected_arrival && (
+                        <span className="text-purple-600 ml-1">
+                          ETA: {new Date(cme.expected_arrival).toLocaleDateString("de-DE")}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Data sources */}
+              <div className="text-[10px] text-gray-400 pt-2 border-t">
+                {env.sources?.length ?? 0} sources | {env.errors?.length ?? 0} errors
+              </div>
+            </div>
           </div>
         )}
 
