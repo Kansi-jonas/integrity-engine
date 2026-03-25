@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ShieldAlert, ShieldCheck, ShieldX, Radio, Users, Activity,
   AlertTriangle, AlertCircle, CheckCircle2, Info, Loader2, RefreshCw,
-  ChevronDown, ChevronUp, Sun, CloudLightning, Zap, Shield, Lock, Unlock, Map,
+  ChevronDown, ChevronUp, Sun, CloudLightning, Zap, Shield, Lock, Unlock, Map, Settings,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -410,12 +410,20 @@ export default function DashboardPage() {
               <p className="text-xs text-gray-500 mt-1">SHIELD Agent — Jamming, Spoofing, Iono Classification</p>
             </div>
 
+            {/* Wizard Link */}
+            <div className="rounded-lg border bg-white p-4">
+              <Link href="/dashboard/wizard" className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-blue-600 transition">
+                <Settings className="h-4 w-4 text-blue-500" /> GNSS Wizard →
+              </Link>
+              <p className="text-xs text-gray-500 mt-1">Zone Editor, Networks, Mountpoints, Deploy</p>
+            </div>
+
             {/* Config Link */}
             <div className="rounded-lg border bg-white p-4">
               <Link href="/dashboard/config" className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-blue-600 transition">
                 <Shield className="h-4 w-4 text-blue-500" /> Caster Config →
               </Link>
-              <p className="text-xs text-gray-500 mt-1">Zones, Quality Gates, ntrips.cfg, Deploy</p>
+              <p className="text-xs text-gray-500 mt-1">Quality Gates, Qualified Stations, ntrips.cfg</p>
             </div>
 
             {/* Fence Actions */}
