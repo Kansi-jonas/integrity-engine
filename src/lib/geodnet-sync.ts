@@ -1,121 +1,164 @@
 // ─── GEODNET Data Sync ───────────────────────────────────────────────────────
-// Fetches RTK sessions and station data from GEODNET API.
-// Lightweight sync — only what the integrity agents need.
+// Fetches RTK sessions and station data from GEODNET API v3.
+// Uses MD5-signed POST requests (same auth as rtkbi).
 
 import Database from "better-sqlite3";
 import crypto from "crypto";
 
 const APP_ID = process.env.GEODNET_APP_ID || "kansi";
 const APP_KEY = process.env.GEODNET_APP_KEY || "";
-const BASE_URL = "https://api.geodnet.com";
 
-async function fetchGeoApi(endpoint: string, params: Record<string, string> = {}): Promise<any> {
-  const url = new URL(`${BASE_URL}${endpoint}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  url.searchParams.set("appId", APP_ID);
-  url.searchParams.set("appKey", APP_KEY);
+// ─── GEODNET API Auth ────────────────────────────────────────────────────────
 
+function computeSign(params: Record<string, string | number>): string {
+  const sortedKeys = Object.keys(params).sort();
+  const valueStr = sortedKeys.map((k) => String(params[k])).join("");
+  return crypto.createHash("md5").update(valueStr + APP_KEY).digest("hex");
+}
+
+async function gfetch(endpoint: string, extra: Record<string, string | number> = {}): Promise<any> {
+  const now = Date.now();
+  const params: Record<string, string | number> = { appId: APP_ID, time: now, ...extra };
+  const sign = computeSign(params);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
   try {
-    const res = await fetch(url.toString(), { signal: controller.signal });
-    if (!res.ok) throw new Error(`GEODNET API ${res.status}: ${endpoint}`);
-    return await res.json();
+    const res = await fetch(`https://rtk.geodnet.com/api/v3/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...params, sign }),
+      signal: controller.signal,
+    });
+    const data = await res.json();
+    if (data.code !== 1000) throw new Error(`GEODNET API code ${data.code}: ${endpoint}`);
+    return data.data;
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timeout);
   }
 }
+
+// ─── Session Sync ────────────────────────────────────────────────────────────
 
 export async function syncSessions(db: Database.Database): Promise<number> {
   const now = Date.now();
   const sixHoursAgo = now - 6 * 3600000;
 
-  try {
-    const data = await fetchGeoApi("/rtkLog/queryList", {
-      startTime: String(sixHoursAgo),
-      endTime: String(now),
-      pageNo: "1",
-      pageSize: "500",
-    });
+  // Ensure table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rtk_sessions (
+      id TEXT PRIMARY KEY, username TEXT NOT NULL, mountpoint TEXT, station TEXT,
+      status INTEGER, fix_rate REAL DEFAULT 0, total_gga INTEGER DEFAULT 0,
+      rtk_fixed INTEGER DEFAULT 0, rtk_float INTEGER DEFAULT 0, duration INTEGER DEFAULT 0,
+      avg_age REAL DEFAULT 0, max_age REAL DEFAULT 0, latitude REAL DEFAULT 0,
+      longitude REAL DEFAULT 0, ip TEXT, login_time INTEGER NOT NULL,
+      synced_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_station ON rtk_sessions(station);
+    CREATE INDEX IF NOT EXISTS idx_sessions_login_time ON rtk_sessions(login_time);
+    CREATE INDEX IF NOT EXISTS idx_sessions_username ON rtk_sessions(username);
+  `);
 
-    const logs = data?.data?.data || data?.data || [];
-    if (!Array.isArray(logs) || logs.length === 0) return 0;
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO rtk_sessions
+    (id, username, mountpoint, station, status, fix_rate, total_gga, rtk_fixed, rtk_float,
+     duration, avg_age, max_age, latitude, longitude, ip, login_time, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
-    const stmt = db.prepare(`
-      INSERT OR IGNORE INTO rtk_sessions
-      (id, username, mountpoint, station, status, fix_rate, total_gga, rtk_fixed, rtk_float,
-       duration, avg_age, max_age, latitude, longitude, ip, login_time, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+  let totalNew = 0;
+  let page = 1;
+  const pageSize = 100;
 
-    let count = 0;
-    const tx = db.transaction(() => {
-      for (const log of logs) {
-        const id = log.id || crypto.randomUUID();
-        const loginTime = log.loginTime || log.login_time || now;
-        stmt.run(
-          id, log.username || "", log.mountpoint || "", log.station || "",
-          log.status ?? 0, log.fixRate ?? log.fix_rate ?? 0,
-          log.totalGGA ?? log.total_gga ?? 0,
-          log.rtkFixed ?? log.rtk_fixed ?? 0,
-          log.rtkFloat ?? log.rtk_float ?? 0,
-          log.duration ?? 0, log.avgAge ?? log.avg_age ?? 0,
-          log.maxAge ?? log.max_age ?? 0,
-          log.latitude ?? 0, log.longitude ?? 0,
-          log.ip || "", loginTime, now
-        );
-        count++;
-      }
-    });
-    tx();
+  while (true) {
+    try {
+      const data = await gfetch("user/rtkLogs", {
+        startTime: sixHoursAgo,
+        endTime: now,
+        page,
+        pageSize,
+      });
+      if (!data?.list?.length) break;
 
-    return count;
-  } catch (err) {
-    console.error("[GEODNET-SYNC] Sessions failed:", err);
-    return 0;
+      const tx = db.transaction(() => {
+        for (const s of data.list) {
+          stmt.run(
+            s.id, s.username, s.mountpoint, s.station, s.status,
+            s.fixRate || 0, s.totalGGA || 0, s.rtkFixed || 0, s.rtkFloat || 0,
+            s.duration || 0, s.avgAge || 0, s.maxAge || 0,
+            s.latitude || 0, s.longitude || 0, s.ip || "",
+            s.loginTime || 0, now
+          );
+        }
+      });
+      tx();
+
+      totalNew += data.list.length;
+      if (data.list.length < pageSize) break;
+      page++;
+      if (page > 50) break; // Safety cap
+    } catch (err) {
+      console.error("[GEODNET-SYNC] Session page failed:", err);
+      break;
+    }
   }
+
+  return totalNew;
 }
 
+// ─── Station Sync ────────────────────────────────────────────────────────────
+
 export async function syncStations(db: Database.Database): Promise<number> {
+  // Ensure table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stations (
+      name TEXT PRIMARY KEY, latitude REAL, longitude REAL, height REAL,
+      status TEXT DEFAULT 'UNKNOWN', network TEXT DEFAULT 'unknown',
+      last_synced INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+  `);
+
   try {
-    const data = await fetchGeoApi("/station/queryList", {
-      pageNo: "1",
-      pageSize: "5000",
-    });
-
-    const stations = data?.data?.data || data?.data || [];
-    if (!Array.isArray(stations) || stations.length === 0) return 0;
-
-    const stmt = db.prepare(`
-      INSERT OR REPLACE INTO stations (name, latitude, longitude, height, status, last_synced)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
+    const data = await gfetch("station/list", {});
+    if (!data?.list?.length) return 0;
 
     const now = Date.now();
-    let count = 0;
+    const stmt = db.prepare(`
+      INSERT INTO stations (name, latitude, longitude, height, status, last_synced)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        latitude = excluded.latitude, longitude = excluded.longitude,
+        height = excluded.height, status = excluded.status,
+        last_synced = excluded.last_synced
+    `);
+
     const tx = db.transaction(() => {
-      for (const s of stations) {
-        const name = s.name || s.stationName || "";
-        if (!name) continue;
-        stmt.run(
-          name, s.latitude ?? 0, s.longitude ?? 0, s.height ?? 0,
-          s.status || "UNKNOWN", now
-        );
-        count++;
+      for (const s of data.list) {
+        stmt.run(s.name, s.latitude, s.longitude, s.height || 0, s.status || "UNKNOWN", now);
       }
     });
     tx();
 
-    return count;
+    return data.list.length;
   } catch (err) {
     console.error("[GEODNET-SYNC] Stations failed:", err);
     return 0;
   }
 }
 
+// ─── Station Status Snapshot ─────────────────────────────────────────────────
+
 export function snapshotStationStatus(db: Database.Database): void {
   const now = Date.now();
   try {
+    // Ensure table exists
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS station_status_log (
+        station_name TEXT NOT NULL, status TEXT NOT NULL, recorded_at INTEGER NOT NULL,
+        PRIMARY KEY (station_name, recorded_at)
+      );
+    `);
+
     const stations = db.prepare(`SELECT name, status FROM stations WHERE status IS NOT NULL`).all() as any[];
     const stmt = db.prepare(`INSERT OR IGNORE INTO station_status_log (station_name, status, recorded_at) VALUES (?, ?, ?)`);
     const tx = db.transaction(() => {
