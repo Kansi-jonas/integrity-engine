@@ -28,18 +28,18 @@ async function triggerMeridianAutoImport(
 
   try {
     // Check if MERIDIAN is configured + enabled
-    const meridianCheck = await fetch('/api/meridian/status').then((r) => r.json()).catch(() => null)
+    const meridianCheck = await fetch('/api/wizard/meridian/status').then((r) => r.json()).catch(() => null)
     if (!meridianCheck || !meridianCheck.enabled) return
 
     // Trigger import
-    const res = await fetch('/api/meridian/import-zones', { method: 'POST' })
+    const res = await fetch('/api/wizard/meridian/import-zones', { method: 'POST' })
     if (!res.ok) return
     const result = await res.json() as { imported?: number; skipped?: number; networks_missing?: string[] }
 
     if (!result.imported || result.imported === 0) return
 
     // Re-fetch zones and update store
-    const freshZonesRaw = await fetch('/api/data/zones').then((r) => r.json()).catch(() => ({}))
+    const freshZonesRaw = await fetch('/api/wizard/data/zones').then((r) => r.json()).catch(() => ({}))
     const freshZones: Record<string, ReturnType<typeof zoneFromJSON>> = {}
     for (const [k, v] of Object.entries(freshZonesRaw as Record<string, unknown>)) {
       freshZones[k] = zoneFromJSON(v as Parameters<typeof zoneFromJSON>[0])
@@ -88,16 +88,16 @@ export default function DataProvider({ children }: { children: React.ReactNode }
       try {
         const [networksRes, nmRes, mountpointsRes, usersRes, groupsRes, zonesRes, streamsRes, settingsRes, accountsRes, aliasesRes] =
           await Promise.allSettled([
-            fetch('/api/data/networks').then((r) => r.json()),
-            fetch('/api/data/network_mountpoints').then((r) => r.json()),
-            fetch('/api/data/mountpoints').then((r) => r.json()),
-            fetch('/api/data/users').then((r) => r.json()),
-            fetch('/api/data/groups').then((r) => r.json()),
-            fetch('/api/data/zones').then((r) => r.json()),
-            fetch('/api/data/streams').then((r) => r.json()),
-            fetch('/api/data/settings').then((r) => r.json()),
-            fetch('/api/data/accounts').then((r) => r.json()),
-            fetch('/api/data/aliases').then((r) => r.json()),
+            fetch('/api/wizard/data/networks').then((r) => r.json()),
+            fetch('/api/wizard/data/network_mountpoints').then((r) => r.json()),
+            fetch('/api/wizard/data/mountpoints').then((r) => r.json()),
+            fetch('/api/wizard/data/users').then((r) => r.json()),
+            fetch('/api/wizard/data/groups').then((r) => r.json()),
+            fetch('/api/wizard/data/zones').then((r) => r.json()),
+            fetch('/api/wizard/data/streams').then((r) => r.json()),
+            fetch('/api/wizard/data/settings').then((r) => r.json()),
+            fetch('/api/wizard/data/accounts').then((r) => r.json()),
+            fetch('/api/wizard/data/aliases').then((r) => r.json()),
           ])
 
         const networks: Record<string, ReturnType<typeof networkFromJSON>> = {}

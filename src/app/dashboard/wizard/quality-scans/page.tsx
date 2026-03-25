@@ -445,7 +445,7 @@ export default function QualityScansPage() {
 
   // Load from server on mount
   useState(() => {
-    fetch('/api/data/quality_scans')
+    fetch('/api/wizard/data/quality_scans')
       .then((r) => r.json())
       .then((data) => { setScans(data ?? {}); setLoaded(true) })
       .catch(() => setLoaded(true))
@@ -453,7 +453,7 @@ export default function QualityScansPage() {
 
   async function persist(updated: Record<string, QualityScan>) {
     setScans(updated)
-    await fetch('/api/data/quality_scans', {
+    await fetch('/api/wizard/data/quality_scans', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),

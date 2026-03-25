@@ -482,12 +482,12 @@ export default function StreamsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete stream?')) return
     deleteStream(id)
-    await fetch(`/api/data/streams?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await fetch(`/api/wizard/data/streams?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   const handleSave = async (stream: Stream) => {
     addStream(stream)
-    await fetch('/api/data/streams', {
+    await fetch('/api/wizard/data/streams', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: stream.id, value: streamToJSON(stream) }),

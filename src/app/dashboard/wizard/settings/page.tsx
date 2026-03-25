@@ -91,7 +91,7 @@ export default function SettingsPage() {
     try {
       updateSettings(data)
       const json = settingsToJSON({ ...settings, ...data })
-      const res = await fetch('/api/data/settings', {
+      const res = await fetch('/api/wizard/data/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(json),

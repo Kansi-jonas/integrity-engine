@@ -62,7 +62,7 @@ export default function DeployPage() {
     setIsLoading(true)
     addLine(`$ Connecting to ${ssh.username}@${ssh.host}:${ssh.port}…`)
     try {
-      const res = await fetch('/api/deploy/test', {
+      const res = await fetch('/api/wizard/deploy/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ssh),
@@ -92,7 +92,7 @@ export default function DeployPage() {
     addLine(`$ Uploading to ${ssh.host}:/etc/euronav/ntrips.cfg…`)
     addLine('# (Creating backup at /etc/euronav/ntrips.cfg~)')
     try {
-      const res = await fetch('/api/deploy/upload', {
+      const res = await fetch('/api/wizard/deploy/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ssh),
@@ -115,7 +115,7 @@ export default function DeployPage() {
     setIsLoading(true)
     addLine(`$ ntrips --verify -c /etc/euronav/ntrips.cfg`)
     try {
-      const res = await fetch('/api/deploy/verify', {
+      const res = await fetch('/api/wizard/deploy/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ssh),
@@ -143,7 +143,7 @@ export default function DeployPage() {
     setIsLoading(true)
     addLine('$ Sending HUP signal to ntrips…')
     try {
-      const res = await fetch('/api/deploy/reload', {
+      const res = await fetch('/api/wizard/deploy/reload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ssh),

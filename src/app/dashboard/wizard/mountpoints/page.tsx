@@ -129,7 +129,7 @@ export default function MountpointsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete mountpoint? Customers using this mountpoint will lose access.')) return
     deleteMountpoint(id)
-    await fetch(`/api/data/mountpoints?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await fetch(`/api/wizard/data/mountpoints?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   const handleToggle = async (id: string) => {
@@ -137,7 +137,7 @@ export default function MountpointsPage() {
     if (!mp) return
     const updated = { ...mp, enabled: !mp.enabled }
     updateMountpoint(id, { enabled: !mp.enabled })
-    await fetch('/api/data/mountpoints', {
+    await fetch('/api/wizard/data/mountpoints', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: id, value: mountpointToJSON(updated) }),
@@ -192,7 +192,7 @@ export default function MountpointsPage() {
       addMountpoint(mountpoint)
     }
 
-    await fetch('/api/data/mountpoints', {
+    await fetch('/api/wizard/data/mountpoints', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: id, value: mountpointToJSON(mountpoint) }),

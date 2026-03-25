@@ -519,7 +519,7 @@ export default function UsersPage() {
   const handleDeleteUser = async (name: string) => {
     if (!confirm(`Delete user "${name}"?`)) return
     deleteUser(name)
-    await fetch(`/api/data/users?key=${encodeURIComponent(name)}`, { method: 'DELETE' })
+    await fetch(`/api/wizard/data/users?key=${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
 
   const handleSubmitUser = async () => {
@@ -551,7 +551,7 @@ export default function UsersPage() {
       addUser(user)
     }
 
-    await fetch('/api/data/users', {
+    await fetch('/api/wizard/data/users', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: user.name, value: userToJSON(user) }),
@@ -572,7 +572,7 @@ export default function UsersPage() {
   const handleDeleteGroup = async (name: string) => {
     if (!confirm(`Delete group "${name}"? This will not delete its members.`)) return
     deleteGroup(name)
-    await fetch(`/api/data/groups?key=${encodeURIComponent(name)}`, { method: 'DELETE' })
+    await fetch(`/api/wizard/data/groups?key=${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
 
   const handleSaveGroup = async (group: Group) => {
@@ -582,7 +582,7 @@ export default function UsersPage() {
       addGroup(group)
     }
 
-    await fetch('/api/data/groups', {
+    await fetch('/api/wizard/data/groups', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: group.name, value: groupToJSON(group) }),

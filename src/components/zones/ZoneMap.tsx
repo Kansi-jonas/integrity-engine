@@ -642,11 +642,11 @@ function useRegenerate(onDone: () => void) {
     setLogLines([])
     setResult(null)
 
-    const es = new EventSource('/api/meridian/regenerate')
+    const es = new EventSource('/api/wizard/meridian/regenerate')
     // EventSource only supports GET; we need POST → use fetch + manual SSE parsing
     es.close()
 
-    fetch('/api/meridian/regenerate', { method: 'POST' }).then(async (res) => {
+    fetch('/api/wizard/meridian/regenerate', { method: 'POST' }).then(async (res) => {
       if (!res.body) throw new Error('No response body')
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -741,7 +741,7 @@ function MeridianPanel({
 
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/meridian/status')
+      const res = await fetch('/api/wizard/meridian/status')
       setStatus(await res.json() as MeridianStatus)
     } catch { /* ignore */ }
   }, [])
@@ -763,7 +763,7 @@ function MeridianPanel({
 
   const toggleInclude = async () => {
     if (!status) return
-    await fetch('/api/meridian/status', {
+    await fetch('/api/wizard/meridian/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: !status.enabled }),
@@ -1463,7 +1463,7 @@ export default function ZoneMap() {
     if (meridianFeatures.length > 0) { setShowMeridian(true); return }
     setLoadingMeridian(true)
     try {
-      const res = await fetch('/api/meridian/geojson')
+      const res = await fetch('/api/wizard/meridian/geojson')
       const data = await res.json() as { features?: MeridianFeature[]; stats?: ZoneStats }
       setMeridianFeatures(data.features ?? [])
       if (data.stats) setMeridianStats(data.stats)
@@ -1495,7 +1495,7 @@ export default function ZoneMap() {
 
       setLoadingMeridian(true)
       try {
-        const res = await fetch('/api/meridian/geojson')
+        const res = await fetch('/api/wizard/meridian/geojson')
         const data = await res.json() as { features?: MeridianFeature[]; stats?: ZoneStats }
         const features = data.features ?? []
         if (features.length > 0) {
@@ -1566,7 +1566,7 @@ export default function ZoneMap() {
     const id = generateId()
     const zone: Zone = { ...zoneData, id }
     addZone(zone); setPendingGeoFence(null); setPanelMode('list')
-    await fetch('/api/data/zones', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: id, value: zoneToJSON(zone) }) })
+    await fetch('/api/wizard/data/zones', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: id, value: zoneToJSON(zone) }) })
   }
 
   const handleSaveEdit = async (zoneData: Omit<Zone, 'id'>) => {
@@ -1574,7 +1574,7 @@ export default function ZoneMap() {
     updateZone(editingZoneId, zoneData)
     const updated: Zone = { ...zoneData, id: editingZoneId }
     setEditingZoneId(null); setPanelMode('list')
-    await fetch('/api/data/zones', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: editingZoneId, value: zoneToJSON(updated) }) })
+    await fetch('/api/wizard/data/zones', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: editingZoneId, value: zoneToJSON(updated) }) })
   }
 
   const handleEditZone = useCallback((id: string) => { setEditingZoneId(id); setPendingGeoFence(null); setPanelMode('edit') }, [])
@@ -1583,14 +1583,14 @@ export default function ZoneMap() {
     if (!confirm('Really delete this zone?')) return
     if (editingZoneId === id) { setEditingZoneId(null); setPanelMode('list') }
     deleteZone(id)
-    await fetch(`/api/data/zones?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await fetch(`/api/wizard/data/zones?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   const handleToggleZone = async (id: string) => {
     toggleZone(id)
     const zone = zones[id]; if (!zone) return
     const updated = { ...zone, enabled: !zone.enabled }
-    await fetch('/api/data/zones', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: id, value: zoneToJSON(updated) }) })
+    await fetch('/api/wizard/data/zones', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: id, value: zoneToJSON(updated) }) })
   }
 
   const handleCancelPanel = useCallback(() => { setPendingGeoFence(null); setEditingZoneId(null); setPanelMode('list') }, [])
@@ -1602,7 +1602,7 @@ export default function ZoneMap() {
     setShowMeridian(false)
     setTimeout(() => {
       setLoadingMeridian(true)
-      fetch('/api/meridian/geojson')
+      fetch('/api/wizard/meridian/geojson')
         .then((r) => r.json() as Promise<{ features?: MeridianFeature[]; stats?: ZoneStats }>)
         .then((data) => {
           setMeridianFeatures(data.features ?? [])
@@ -1614,13 +1614,13 @@ export default function ZoneMap() {
     }, 500)
   }, [])
 
-  // MERIDIAN import — calls POST /api/meridian/import-zones, then re-fetches zones
+  // MERIDIAN import — calls POST /api/wizard/meridian/import-zones, then re-fetches zones
   const handleMeridianImport = useCallback(async () => {
     setImportingMeridian(true)
     setImportError(null)
     setImportResult(null)
     try {
-      const res = await fetch('/api/meridian/import-zones', { method: 'POST' })
+      const res = await fetch('/api/wizard/meridian/import-zones', { method: 'POST' })
       const data = await res.json() as { imported?: number; skipped?: number; networks_missing?: string[]; timestamp?: string; error?: string }
       if (!res.ok || data.error) {
         setImportError(data.error ?? 'Import failed')
@@ -1633,7 +1633,7 @@ export default function ZoneMap() {
         timestamp: data.timestamp ?? new Date().toISOString(),
       })
       // Re-fetch zones from server and update store
-      const freshRaw = await fetch('/api/data/zones').then((r) => r.json()).catch(() => ({})) as Record<string, unknown>
+      const freshRaw = await fetch('/api/wizard/data/zones').then((r) => r.json()).catch(() => ({})) as Record<string, unknown>
       const freshZones: Record<string, ReturnType<typeof zoneFromJSON>> = {}
       for (const [k, v] of Object.entries(freshRaw)) {
         freshZones[k] = zoneFromJSON(v as Parameters<typeof zoneFromJSON>[0])

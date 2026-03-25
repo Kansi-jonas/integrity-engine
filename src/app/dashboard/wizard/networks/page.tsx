@@ -88,7 +88,7 @@ export default function NetworksPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete network? All network mountpoints and zones using this network will need updating.')) return
     deleteNetwork(id)
-    await fetch(`/api/data/networks?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await fetch(`/api/wizard/data/networks?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   const handlePreset = (preset: Omit<Network, 'id'>) => {
@@ -117,7 +117,7 @@ export default function NetworksPage() {
       addNetwork(network)
     }
 
-    await fetch('/api/data/networks', {
+    await fetch('/api/wizard/data/networks', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: id, value: networkToJSON(network) }),

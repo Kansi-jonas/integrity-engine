@@ -95,7 +95,7 @@ export default function NetworkMountpointsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete network mountpoint? All RTKdata mountpoints referencing it will need updating.')) return
     deleteNetworkMountpoint(id)
-    await fetch(`/api/data/network_mountpoints?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await fetch(`/api/wizard/data/network_mountpoints?key=${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   const handlePreset = (preset: typeof NM_PRESETS[0]) => {
@@ -134,7 +134,7 @@ export default function NetworkMountpointsPage() {
       addNetworkMountpoint(nm)
     }
 
-    await fetch('/api/data/network_mountpoints', {
+    await fetch('/api/wizard/data/network_mountpoints', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: id, value: networkMountpointToJSON(nm) }),

@@ -269,7 +269,7 @@ export default function AccountsPage() {
           ...(a.count != null ? { count: a.count } : {}),
         }
       }
-      await fetch('/api/data/accounts', {
+      await fetch('/api/wizard/data/accounts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

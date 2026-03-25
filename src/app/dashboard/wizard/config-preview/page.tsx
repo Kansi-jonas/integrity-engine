@@ -141,7 +141,7 @@ export default function ConfigPage() {
     setError(null)
     try {
       if (splitMode) {
-        const res = await fetch('/api/config/generate?split=true')
+        const res = await fetch('/api/wizard/config/generate?split=true')
         const data = await res.json()
         if (data.error) throw new Error(data.error)
         // Use server-generated split configs:
@@ -188,7 +188,7 @@ export default function ConfigPage() {
         }, 100)
       }
     } else {
-      window.location.href = '/api/config/download'
+      window.location.href = '/api/wizard/config/download'
     }
   }, [splitMode, splitMainConfig, zonesConfig])
 
