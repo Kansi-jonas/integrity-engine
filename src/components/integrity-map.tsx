@@ -112,13 +112,16 @@ export function IntegrityMap({ data }: { data: MapData }) {
       const kp = env.ionosphere.kp;
       const affected = env.ionosphere.affected_regions;
 
-      // Always show auroral oval (faint) + intensify with Kp
+      // Always show all iono regions (faint purple) + intensify when affected
       for (const [region, def] of Object.entries(IONO_REGIONS)) {
         const isAffected = affected.includes(region);
-        const baseOpacity = isAffected ? 0.08 + (kp - 3) * 0.04 : 0.02;
-        const color = isAffected ? "#7c3aed" : "#4c1d95";
+        // Always visible: quiet=0.04, minor=0.08, storm=0.12-0.35
+        const baseOpacity = isAffected
+          ? Math.min(0.35, 0.08 + Math.max(0, kp - 3) * 0.06)
+          : 0.04; // Always faintly visible even in quiet conditions
+        const color = isAffected ? "#7c3aed" : "#6d28d9";
 
-        if (baseOpacity > 0.01) {
+        {
           L.circle([def.lat, def.lon], {
             radius: def.radius,
             color,
@@ -139,22 +142,7 @@ export function IntegrityMap({ data }: { data: MapData }) {
         }
       }
 
-      // Solar wind direction indicator (arrow from sun-side)
-      if (env.ionosphere.wind_speed > 300) {
-        const windIntensity = Math.min(1, (env.ionosphere.wind_speed - 300) / 500);
-        // Show as a gradient line from the sun direction (east)
-        const arrowPoints: L.LatLngExpression[] = [
-          [0, 180], [0, 170], [10, 175], [0, 170], [-10, 175], [0, 170],
-        ];
-        L.polyline(arrowPoints, {
-          color: `rgba(251, 191, 36, ${0.2 + windIntensity * 0.5})`,
-          weight: 2 + windIntensity * 3,
-          dashArray: "8 4",
-        }).addTo(map).bindTooltip(
-          `Solar Wind: ${env.ionosphere.wind_speed} km/s<br>Bz: ${env.ionosphere.bz}nT`,
-          { direction: "center" }
-        );
-      }
+      // Solar wind info is shown in the status bar — no map arrow needed
     }
 
     // ── Layer 2: Troposphere (weather risk zones) ────────────────────────
@@ -284,12 +272,16 @@ export function IntegrityMap({ data }: { data: MapData }) {
       for (const s of data.sessions) {
         if (!s.lat || !s.lon) continue;
         const color = fixColor(s.fix);
+        // Good fix = prominent, bad fix = smaller + less opaque (don't dominate the map)
+        const isGood = s.fix >= 60;
+        const radius = s.live ? 6 : isGood ? 4 : 2.5;
+        const opacity = isGood ? 0.9 : 0.5;
         L.circleMarker([s.lat, s.lon], {
-          radius: s.live ? 6 : 3.5,
+          radius,
           color: s.live ? "#ffffff" : color,
           fillColor: color,
-          fillOpacity: 0.9,
-          weight: s.live ? 2 : 1,
+          fillOpacity: opacity,
+          weight: s.live ? 2 : isGood ? 1 : 0.5,
         }).addTo(map).bindTooltip(
           `<b>Fix: ${s.fix}%</b> | Age: ${s.age}ms<br>` +
           `Station: ${s.station}` +
