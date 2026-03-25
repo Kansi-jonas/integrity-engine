@@ -140,6 +140,23 @@ export function startAutoSync() {
     }
   });
 
+  // ── ML Model Retrain — daily at 03:00 ──────────────────────────────────
+  cron.schedule("0 3 * * *", () => {
+    try {
+      console.log("[ML] Starting nightly retrain...");
+      const db = openDb();
+      const { trainModel, invalidateModelCache } = require("./ml/quality-predictor");
+      invalidateModelCache();
+      const state = trainModel(db, dataDir);
+      db.close();
+      if (state) {
+        console.log(`[ML] Retrain complete: ${state.metadata.training_samples} samples, R²=${state.metadata.oob_score}`);
+      }
+    } catch (err) {
+      console.error("[ML] Retrain failed:", err);
+    }
+  });
+
   // ── MERIDIAN Zone Sync — every 2 hours ──────────────────────────────────
   cron.schedule("5 */2 * * *", async () => {
     try {
