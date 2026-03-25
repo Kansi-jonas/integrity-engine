@@ -223,6 +223,14 @@ export function startAutoSync() {
         console.error("[ONOCOY-PROBER] Failed:", err);
       }
 
+      // Step 8: PPK Downloader (RINEX deep QC for suspicious stations)
+      try {
+        const { runPPKDownloader } = require("./agents/ppk-downloader");
+        await runPPKDownloader(db, dataDir);
+      } catch (err) {
+        console.error("[PPK] Failed:", err);
+      }
+
       db.close();
       console.log(`[QUALITY-PIPELINE] Complete in ${Math.round((Date.now() - startTime) / 1000)}s`);
     } catch (err) {
