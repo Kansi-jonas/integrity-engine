@@ -206,6 +206,23 @@ export function startAutoSync() {
         console.error("[FENCE] Failed:", err);
       }
 
+      // Step 6: Generate qualified station config for Alberding
+      try {
+        const { generateQualifiedConfig } = require("./config-generator");
+        const config = generateQualifiedConfig(db, dataDir);
+        console.log(`[CONFIG-GEN] ${config.stats.qualified_count} qualified (${config.stats.platinum} platinum, ${config.stats.gold} gold, ${config.stats.silver} silver), ${config.stats.disqualified_count} disqualified`);
+      } catch (err) {
+        console.error("[CONFIG-GEN] Failed:", err);
+      }
+
+      // Step 7: ONOCOY Prober (gap-fill + quality compare)
+      try {
+        const { runOnocoyProber } = require("./agents/onocoy-prober");
+        await runOnocoyProber(db, dataDir);
+      } catch (err) {
+        console.error("[ONOCOY-PROBER] Failed:", err);
+      }
+
       db.close();
       console.log(`[QUALITY-PIPELINE] Complete in ${Math.round((Date.now() - startTime) / 1000)}s`);
     } catch (err) {
