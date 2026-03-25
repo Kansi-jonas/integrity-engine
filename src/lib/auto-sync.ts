@@ -95,8 +95,18 @@ export function startAutoSync() {
     }
   });
 
+  // ── MERIDIAN Zone Sync — every 2 hours ──────────────────────────────────
+  cron.schedule("5 */2 * * *", async () => {
+    try {
+      const { syncMeridianZones } = require("./meridian-sync");
+      await syncMeridianZones(dataDir);
+    } catch (err) {
+      console.error("[MERIDIAN-SYNC] Failed:", err);
+    }
+  });
+
   // ── Quality Pipeline — every 4 hours (:30) ───────────────────────────────
-  // TRUST + Signal Integrity + Fence Generator
+  // TRUST + Signal Integrity + Fence Generator + Zone Integrity
   cron.schedule("30 */4 * * *", async () => {
     try {
       console.log("[QUALITY-PIPELINE] Starting...");
@@ -136,7 +146,24 @@ export function startAutoSync() {
         console.error("[TRUST] Failed:", err);
       }
 
-      // Step 4: Fence Generator
+      // Step 4: Zone Integrity (if MERIDIAN zones available)
+      try {
+        const zonesPath = path.join(dataDir, "meridian-zones.json");
+        if (fs.existsSync(zonesPath)) {
+          const { computeZoneIntegrity } = require("./meridian-sync");
+          const zones = JSON.parse(fs.readFileSync(zonesPath, "utf-8"));
+          const zoneIntegrity = computeZoneIntegrity(db, zones, trustScores);
+          const ziPath = path.join(dataDir, "zone-integrity.json");
+          const tmp = ziPath + ".tmp";
+          fs.writeFileSync(tmp, JSON.stringify({ zones: zoneIntegrity, computed_at: new Date().toISOString() }));
+          fs.renameSync(tmp, ziPath);
+          console.log(`[ZONE-INTEGRITY] ${zoneIntegrity.length} zones scored`);
+        }
+      } catch (err) {
+        console.error("[ZONE-INTEGRITY] Failed:", err);
+      }
+
+      // Step 5: Fence Generator
       try {
         const { generateFenceActions } = require("./agents/fence-generator");
         const actions = await generateFenceActions(integrityAnomalies, trustScores, dataDir);

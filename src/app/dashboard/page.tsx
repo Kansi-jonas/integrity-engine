@@ -1,15 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   ShieldAlert, ShieldCheck, ShieldX, Radio, Users, Activity,
   AlertTriangle, AlertCircle, CheckCircle2, Info, Loader2, RefreshCw,
-  ChevronDown, ChevronUp, Sun, CloudLightning, Zap, Shield, Lock, Unlock,
+  ChevronDown, ChevronUp, Sun, CloudLightning, Zap, Shield, Lock, Unlock, Map,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell,
 } from "recharts";
+
+const IntegrityMap = dynamic(
+  () => import("@/components/integrity-map").then(m => m.IntegrityMap),
+  { ssr: false, loading: () => <div className="w-full h-[500px] rounded-lg border bg-gray-50 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div> }
+);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -98,6 +104,7 @@ export default function DashboardPage() {
   const [weather, setWeather] = useState<SpaceWeather | null>(null);
   const [fences, setFences] = useState<FenceData | null>(null);
   const [correlation, setCorrelation] = useState<CorrelationData | null>(null);
+  const [mapData, setMapData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -109,8 +116,9 @@ export default function DashboardPage() {
       fetch("/api/space-weather").then(r => r.json()).catch(() => null),
       fetch("/api/fences").then(r => r.json()).catch(() => null),
       fetch("/api/correlation").then(r => r.json()).catch(() => null),
-    ]).then(([s, t, w, f, c]) => {
-      setSignal(s); setTrust(t); setWeather(w); setFences(f); setCorrelation(c);
+      fetch("/api/map").then(r => r.json()).catch(() => null),
+    ]).then(([s, t, w, f, c, m]) => {
+      setSignal(s); setTrust(t); setWeather(w); setFences(f); setCorrelation(c); setMapData(m);
     }).finally(() => setLoading(false));
   };
 
@@ -178,6 +186,18 @@ export default function DashboardPage() {
             {weather.expected_impact.affected_regions.length > 0 && (
               <p className="text-xs text-gray-500 mt-1">Affected: {weather.expected_impact.affected_regions.join(", ")}</p>
             )}
+          </div>
+        )}
+
+        {/* World Map */}
+        {mapData && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-2">
+              <Map className="h-4 w-4" /> Global Integrity Map
+            </h2>
+            <div className="rounded-lg border bg-white p-4">
+              <IntegrityMap data={mapData} />
+            </div>
           </div>
         )}
 

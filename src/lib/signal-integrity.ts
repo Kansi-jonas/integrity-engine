@@ -112,10 +112,12 @@ export function computeSignalIntegrity(db: Database.Database): SignalIntegrityDa
 
   // ── 1. Load recent sessions (6h window) ──────────────────────────────────
 
+  // Filter: ignore sessions with fix_rate=0 and duration<60s (noise/disconnects)
   const recentSessions = db.prepare(`
     SELECT station, fix_rate, avg_age, latitude, longitude, username, login_time, duration
     FROM rtk_sessions
     WHERE login_time >= ? AND station IS NOT NULL AND station != ''
+      AND NOT (fix_rate = 0 AND duration >= 0 AND duration < 60)
     ORDER BY login_time DESC
   `).all(sixHoursAgo) as any[];
 
@@ -129,6 +131,7 @@ export function computeSignalIntegrity(db: Database.Database): SignalIntegrityDa
            COUNT(DISTINCT username) as unique_users
     FROM rtk_sessions
     WHERE login_time >= ? AND login_time < ? AND station IS NOT NULL AND station != ''
+      AND NOT (fix_rate = 0 AND duration >= 0 AND duration < 60)
     GROUP BY station
   `).all(sevenDaysAgo, sixHoursAgo) as any[];
 
