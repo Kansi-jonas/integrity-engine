@@ -113,16 +113,22 @@ export function startAutoSync() {
     }
   });
 
-  // ── SPACE WEATHER — every hour (:10) ──────────────────────────────────────
+  // ── ENVIRONMENT — every hour (:10) ──────────────────────────────────────────
+  // Replaces simple space-weather with comprehensive 9-source environment monitoring
   cron.schedule("10 * * * *", async () => {
     try {
-      const { fetchSpaceWeather } = require("./agents/space-weather");
-      const weather = await fetchSpaceWeather(dataDir);
-      if (weather.kp_index >= 4) {
-        console.log(`[SPACE-WEATHER] Storm: Kp=${weather.kp_index} (${weather.storm_level})`);
-      }
+      const { fetchEnvironment } = require("./agents/environment");
+      const env = await fetchEnvironment(dataDir);
+      const iono = env.ionosphere;
+      const parts = [`Kp=${iono.kp_index}`, `Dst=${iono.dst_index}nT`, `Bz=${iono.bz_component}nT`];
+      if (iono.flare_class) parts.push(`Flare:${iono.flare_class}`);
+      if (iono.storm_level !== "quiet") parts.push(`Storm:${iono.storm_level}(${iono.storm_phase})`);
+      parts.push(`Sats:${env.constellation.total_healthy}/${env.constellation.total_healthy + env.constellation.total_unhealthy}`);
+      if (env.cme_forecast.length > 0) parts.push(`CME:${env.cme_forecast.length} incoming`);
+      parts.push(`Sources:${env.sources.length}${env.errors.length > 0 ? ` (${env.errors.length} errors)` : ""}`);
+      console.log(`[ENVIRONMENT] ${parts.join(" | ")}`);
     } catch (err) {
-      console.error("[SPACE-WEATHER] Failed:", err);
+      console.error("[ENVIRONMENT] Failed:", err);
     }
   });
 
@@ -258,9 +264,10 @@ export function startAutoSync() {
         console.log("[STARTUP] rtkbi sync skipped (RTKBI_URL not set or unavailable)");
       }
 
-      // Initial space weather fetch
-      const { fetchSpaceWeather } = require("./agents/space-weather");
-      await fetchSpaceWeather(dataDir);
+      // Initial environment fetch (9 sources)
+      const { fetchEnvironment } = require("./agents/environment");
+      const env = await fetchEnvironment(dataDir);
+      console.log(`[STARTUP] Environment: Kp=${env.ionosphere.kp_index}, ${env.sources.length} sources`);
 
       db.close();
     } catch (err) {
