@@ -19,6 +19,8 @@ interface MapData {
   } | null;
   probes: Array<{ station: string; lat: number; lon: number; success: boolean; type: string; latency: number; bytes: number }>;
   coverage_gaps: Array<{ lat: number; lon: number; count: number }>;
+  vtec_grid?: Array<{ lat: number; lon: number; vtec: number; gradient: number; quality: string }>;
+  quality_surface?: Array<{ lat: number; lon: number; predicted: number; variance: number; confidence: string; n_stations: number }>;
 }
 
 // ─── Region Definitions ──────────────────────────────────────────────────────
@@ -83,6 +85,8 @@ export function IntegrityMap({ data }: { data: MapData }) {
     anomalies: true,
     probes: true,
     gaps: true,
+    tec_heatmap: true,
+    quality_surface: true,
   });
 
   const toggleLayer = (key: keyof typeof layers) => {
@@ -267,7 +271,66 @@ export function IntegrityMap({ data }: { data: MapData }) {
       }
     }
 
-    // ── Layer 8: Sessions (on top of everything) ─────────────────────────
+    // ── Layer 8a: TEC Heatmap (real ionospheric data from IGS GIM) ────────
+    if (layers.tec_heatmap && data.vtec_grid) {
+      for (const pt of data.vtec_grid) {
+        if (!pt.lat || !pt.lon) continue;
+        // Color by gradient: green=nominal, yellow=elevated, orange=degraded, red=storm
+        let color: string;
+        let opacity: number;
+        if (pt.quality === "storm") { color = "#dc2626"; opacity = 0.25; }
+        else if (pt.quality === "degraded") { color = "#ea580c"; opacity = 0.18; }
+        else if (pt.quality === "elevated") { color = "#d97706"; opacity = 0.10; }
+        else { color = "#059669"; opacity = 0.04; }
+
+        L.circle([pt.lat, pt.lon], {
+          radius: 500000, // 500km (matches ~5° grid)
+          color: "transparent",
+          fillColor: color,
+          fillOpacity: opacity,
+          weight: 0,
+        }).addTo(map).bindTooltip(
+          `<b>Ionosphere</b><br>` +
+          `VTEC: ${pt.vtec} TECU<br>` +
+          `Gradient: ${pt.gradient} TECU/°<br>` +
+          `Quality: <b>${pt.quality}</b>`,
+          { direction: "top", className: "custom-tooltip" }
+        );
+      }
+    }
+
+    // ── Layer 8b: Quality Surface (Kriging predicted fix rate) ──────────
+    if (layers.quality_surface && data.quality_surface) {
+      for (const pt of data.quality_surface) {
+        if (!pt.lat || !pt.lon) continue;
+        // Color by predicted fix rate: green=good, yellow=medium, red=poor
+        let color: string;
+        let opacity: number;
+        if (pt.predicted >= 80) { color = "#059669"; opacity = 0.08; }
+        else if (pt.predicted >= 60) { color = "#d97706"; opacity = 0.10; }
+        else if (pt.predicted >= 40) { color = "#ea580c"; opacity = 0.12; }
+        else { color = "#dc2626"; opacity = 0.15; }
+
+        // Size by confidence
+        const radius = pt.confidence === "high" ? 120000 : pt.confidence === "medium" ? 100000 : 80000;
+
+        L.circle([pt.lat, pt.lon], {
+          radius,
+          color: "transparent",
+          fillColor: color,
+          fillOpacity: opacity,
+          weight: 0,
+        }).addTo(map).bindTooltip(
+          `<b>Quality Surface</b><br>` +
+          `Predicted Fix: ${pt.predicted}%<br>` +
+          `Confidence: ${pt.confidence}<br>` +
+          `Stations used: ${pt.n_stations}`,
+          { direction: "top", className: "custom-tooltip" }
+        );
+      }
+    }
+
+    // ── Layer 9: Sessions (on top of everything) ─────────────────────────
     if (layers.sessions) {
       for (const s of data.sessions) {
         if (!s.lat || !s.lon) continue;
@@ -361,6 +424,8 @@ export function IntegrityMap({ data }: { data: MapData }) {
           { key: "anomalies" as const, label: "Anomalies", color: "bg-amber-500" },
           { key: "probes" as const, label: "Probes", color: "bg-emerald-500" },
           { key: "gaps" as const, label: "Gaps", color: "bg-orange-500" },
+          { key: "tec_heatmap" as const, label: "TEC", color: "bg-green-600" },
+          { key: "quality_surface" as const, label: "Quality", color: "bg-teal-500" },
         ]).map(({ key, label, color }) => (
           <button
             key={key}

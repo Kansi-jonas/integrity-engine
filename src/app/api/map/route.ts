@@ -197,6 +197,24 @@ export async function GET() {
       environment,
       probes,
       coverage_gaps: coverageGaps,
+      // TEC Heatmap from IGS GIM
+      vtec_grid: (() => {
+        try {
+          const envData = JSON.parse(fs.readFileSync(path.join(dataDir, "environment.json"), "utf-8"));
+          return envData.vtec?.grid || [];
+        } catch { return []; }
+      })(),
+      // Quality Surface from Kriging
+      quality_surface: (() => {
+        try {
+          const surface = JSON.parse(fs.readFileSync(path.join(dataDir, "quality-surface.json"), "utf-8"));
+          return (surface.grid || []).map((g: any) => ({
+            lat: g.lat, lon: g.lon,
+            predicted: g.predicted, variance: g.variance,
+            confidence: g.confidence, n_stations: g.n_stations,
+          }));
+        } catch { return []; }
+      })(),
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
