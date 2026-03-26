@@ -82,6 +82,14 @@ export interface EnvironmentData {
     prediction_6h: Array<{ time: string; level_m: number }>;
   }>;
 
+  // Ionospheric TEC (from IGS GIM)
+  vtec?: {
+    grid: Array<{ lat: number; lon: number; vtec: number; gradient: number; quality: string }>;
+    scintillation_risks: Array<{ lat: number; lon: number; s4_proxy: number; risk: string; type: string }>;
+    epoch: string;
+    source: string;
+  };
+
   fetched_at: string;
   sources: string[];
   errors: string[];
@@ -419,6 +427,63 @@ function computeImpact(kp: number, dst: number, bz: number, xrayFlux: number): {
 
 // ─── Main Function ──────────────────────────────────────────────────────────
 
+// ─── IGS Global Ionosphere Map (VTEC) ────────────────────────────────────────
+async function fetchIgsVtec(dataDir: string, kpIndex: number): Promise<EnvironmentData["vtec"]> {
+  try {
+    // Try CODE rapid product (1-day latency, most reliable free source)
+    // Format: CODG{DOY}0.{YY}I — e.g., CODG0850.26I for DOY 85 of 2026
+    // Use yesterday's date for rapid product availability
+    const yesterday = new Date(Date.now() - 86400000);
+    const year = yesterday.getUTCFullYear();
+    const doy = getDayOfYear(yesterday);
+    const yy = String(year).slice(-2);
+
+    // Try CDDIS first (NASA, most reliable)
+    const ionexUrl = `https://cddis.nasa.gov/archive/gnss/products/ionex/${year}/${String(doy).padStart(3, "0")}/codg${String(doy).padStart(3, "0")}0.${yy}i.Z`;
+
+    // Alternative: uncompressed from CODE direct
+    const codeUrl = `https://ftp.aiub.unibe.ch/CODE/CODG${String(doy).padStart(3, "0")}0.${yy}I`;
+
+    // Try fetching (CDDIS requires Earthdata auth, so try CODE first)
+    const text = await fetchText(codeUrl, 15000);
+
+    if (text && text.includes("END OF HEADER")) {
+      const { parseIonex } = require("../ionosphere/ionex-parser");
+      const { generateTecGrid } = require("../ionosphere/tec-interpolator");
+      const { computeScintillationRisk } = require("../ionosphere/scintillation-proxy");
+
+      const ionexFile = parseIonex(text);
+      if (ionexFile.maps.length > 0) {
+        // Use the latest map
+        const latestMap = ionexFile.maps[ionexFile.maps.length - 1];
+        const grid = generateTecGrid(latestMap, 10); // 10° resolution for manageable size
+
+        // Compute scintillation if we have 2+ maps
+        let scintillationRisks: any[] = [];
+        if (ionexFile.maps.length >= 2) {
+          const prevMap = ionexFile.maps[ionexFile.maps.length - 2];
+          scintillationRisks = computeScintillationRisk(prevMap, latestMap, kpIndex);
+        }
+
+        return {
+          grid: grid.slice(0, 500), // Cap for JSON size
+          scintillation_risks: scintillationRisks.slice(0, 100),
+          epoch: latestMap.epoch.toISOString(),
+          source: "CODE/AIUB IGS GIM",
+        };
+      }
+    }
+  } catch (e) {
+    // IGS GIM is a nice-to-have, not critical
+  }
+  return undefined;
+}
+
+function getDayOfYear(date: Date): number {
+  const start = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.floor((date.getTime() - start.getTime()) / 86400000) + 1;
+}
+
 export async function fetchEnvironment(dataDir: string): Promise<EnvironmentData> {
   const errors: string[] = [];
   const sources: string[] = [];
@@ -435,6 +500,10 @@ export async function fetchEnvironment(dataDir: string): Promise<EnvironmentData
     fetchTroposphere().then(r => { sources.push("Open-Meteo"); return r; }).catch(e => { errors.push(`Open-Meteo: ${e}`); return { regions: [] }; }),
     fetchTides().then(r => { if (r.length > 0) sources.push("NOAA Tides"); return r; }).catch(e => { errors.push(`Tides: ${e}`); return []; }),
   ]);
+
+  // Fetch IGS VTEC (separate, after Kp is available for scintillation context)
+  const vtec = await fetchIgsVtec(dataDir, kp.current).catch(() => undefined);
+  if (vtec) sources.push("IGS GIM (CODE)");
 
   const impact = computeImpact(kp.current, dst, dscovr.bz, xray.flux);
 
@@ -469,6 +538,7 @@ export async function fetchEnvironment(dataDir: string): Promise<EnvironmentData
     },
     troposphere: tropo,
     tides,
+    vtec: vtec || undefined,
     fetched_at: new Date().toISOString(),
     sources,
     errors,
