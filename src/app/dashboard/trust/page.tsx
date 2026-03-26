@@ -22,8 +22,9 @@ interface TrustScore {
   confidence: number;
   consistency: number;
   combined_score: number;
+  composite_score?: number;
   total_sessions: number;
-  flag: "trusted" | "probation" | "untrusted" | "new";
+  flag: "trusted" | "probation" | "untrusted" | "new" | "excluded";
   last_updated: string;
 }
 
@@ -78,6 +79,7 @@ const FLAG_CONFIG: Record<string, { color: string; bg: string; icon: any; label:
   probation: { color: "text-amber-700", bg: "bg-amber-100", icon: ShieldAlert, label: "Probation" },
   untrusted: { color: "text-red-700", bg: "bg-red-100", icon: ShieldX, label: "Untrusted" },
   new: { color: "text-gray-600", bg: "bg-gray-100", icon: Shield, label: "New" },
+  excluded: { color: "text-red-800", bg: "bg-red-200", icon: ShieldX, label: "Excluded" },
 };
 
 function FlagBadge({ flag }: { flag: string }) {
@@ -137,7 +139,8 @@ export default function TrustPage() {
   });
 
   filtered.sort((a, b) => {
-    const va = a[sortBy], vb = b[sortBy];
+    const va = sortBy === "combined_score" ? (a.combined_score ?? a.composite_score ?? 0) : a[sortBy];
+    const vb = sortBy === "combined_score" ? (b.combined_score ?? b.composite_score ?? 0) : b[sortBy];
     return sortAsc ? (va as number) - (vb as number) : (vb as number) - (va as number);
   });
 
@@ -150,7 +153,8 @@ export default function TrustPage() {
     { range: "0.8-1.0", count: 0, color: "#059669" },
   ];
   for (const s of data.scores) {
-    const idx = Math.min(4, Math.floor(s.combined_score * 5));
+    const score = s.combined_score ?? s.composite_score ?? s.trust_score ?? 0;
+    const idx = Math.min(4, Math.floor((score as number) * 5));
     distributionBuckets[idx].count++;
   }
 
