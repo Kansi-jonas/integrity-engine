@@ -5,6 +5,11 @@ import cron from "node-cron";
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
+import { eventBus, IntegrityEvent } from "./event-bus";
+
+function emitEvent(type: IntegrityEvent["type"], severity: IntegrityEvent["severity"], title: string, detail: string, data?: any) {
+  eventBus.emit("integrity", { type, severity, title, detail, data, timestamp: new Date().toISOString() });
+}
 
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "data", "integrity.db");
 let initialized = false;
@@ -99,6 +104,11 @@ export function startAutoSync() {
         const critical = anomalies.filter((a: any) => a.severity === "critical").length;
         const kpAdj = anomalies.filter((a: any) => a.kp_adjusted).length;
         console.log(`[SENTINEL-V2] ${anomalies.length} anomalies (${critical} critical${kpAdj > 0 ? `, ${kpAdj} Kp-adjusted` : ""})`);
+        if (critical > 0) {
+          emitEvent("anomaly", "critical", `${critical} critical anomalies detected`, `SENTINEL V2 found ${anomalies.length} anomalies (${critical} critical)`, { count: anomalies.length, critical });
+        } else if (anomalies.length > 0) {
+          emitEvent("anomaly", "warning", `${anomalies.length} anomalies detected`, `SENTINEL V2 detected ${anomalies.length} anomalies`, { count: anomalies.length });
+        }
       }
     } catch (err) {
       console.error("[SENTINEL-V2] Failed:", err);
@@ -115,6 +125,10 @@ export function startAutoSync() {
       if (events.length > 0) {
         const types = events.map((e: any) => e.classification).join(", ");
         console.log(`[SHIELD] ${events.length} interference events classified: ${types}`);
+        for (const evt of events) {
+          const sev = evt.classification === "jamming" || evt.classification === "spoofing" ? "critical" : "warning";
+          emitEvent("interference", sev, `${evt.classification} detected`, `SHIELD classified interference: ${evt.classification}`, evt);
+        }
       }
     } catch (err) {
       console.error("[SHIELD] Failed:", err);
@@ -135,6 +149,16 @@ export function startAutoSync() {
       if (env.cme_forecast.length > 0) parts.push(`CME:${env.cme_forecast.length} incoming`);
       parts.push(`Sources:${env.sources.length}${env.errors.length > 0 ? ` (${env.errors.length} errors)` : ""}`);
       console.log(`[ENVIRONMENT] ${parts.join(" | ")}`);
+      // Emit events for significant environment changes
+      if (iono.storm_level !== "quiet") {
+        emitEvent("environment", "warning", `Geomagnetic storm: ${iono.storm_level}`, `Kp ${iono.kp} | Dst ${iono.dst}nT | ${iono.affected_regions.length} regions affected`, iono);
+      }
+      if (iono.flare_class && (iono.flare_class.startsWith("M") || iono.flare_class.startsWith("X"))) {
+        emitEvent("environment", "critical", `Solar Flare ${iono.flare_class}`, `${iono.flare_class} flare detected — potential GNSS degradation`, { flare: iono.flare_class });
+      }
+      if (env.cme_forecast.length > 0) {
+        emitEvent("environment", "warning", `${env.cme_forecast.length} CME incoming`, `Coronal Mass Ejection forecast — storm expected`, env.cme_forecast);
+      }
     } catch (err) {
       console.error("[ENVIRONMENT] Failed:", err);
     }
@@ -205,8 +229,20 @@ export function startAutoSync() {
         const untrusted = trustScores.filter((t: any) => t.flag === "untrusted").length;
         const probation = trustScores.filter((t: any) => t.flag === "probation").length;
         console.log(`[TRUST-V2] ${trustScores.length} scored — ${excluded} excluded, ${untrusted} untrusted, ${probation} probation`);
+        if (excluded > 0) {
+          emitEvent("trust_change", "warning", `${excluded} stations excluded`, `TRUST V2: ${excluded} excluded, ${untrusted} untrusted, ${probation} probation`, { excluded, untrusted, probation });
+        }
       } catch (err) {
         console.error("[TRUST-V2] Failed:", err);
+      }
+
+      // Step 3b: Spatial Quality Surface (Kriging + Moran's I)
+      try {
+        const { computeQualitySurface } = require("./spatial/quality-surface");
+        const surface = computeQualitySurface(db, dataDir);
+        console.log(`[SPATIAL] Variogram R²=${surface.variogram.r_squared} | Moran I=${surface.moran.global_I} (${surface.moran.interpretation}) | ${surface.grid.length} grid points | ${surface.regions.length} regions`);
+      } catch (err) {
+        console.error("[SPATIAL] Failed:", err);
       }
 
       // Step 4: Zone Integrity (if MERIDIAN zones available)
