@@ -93,5 +93,39 @@ function initSchema(db: Database.Database) {
       started_at INTEGER,
       completed_at INTEGER
     );
+
+    -- Audit log (append-only, compliance)
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      event_type TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      before_state TEXT,
+      after_state TEXT,
+      metadata TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
+
+    -- Interference events (persistent, for historical queries)
+    CREATE TABLE IF NOT EXISTS interference_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      classification TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      confidence REAL,
+      lat REAL,
+      lon REAL,
+      radius_km REAL,
+      affected_users INTEGER,
+      affected_stations TEXT,
+      features TEXT,
+      description TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_interference_time ON interference_events(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_interference_class ON interference_events(classification);
   `);
 }

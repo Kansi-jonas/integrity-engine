@@ -310,7 +310,33 @@ export function startAutoSync() {
         console.error("[ZONE-GEN] Failed:", err);
       }
 
-      // Step 6c: Session Feedback Loop (validate zones against actual user results)
+      // Step 6c: Cross-Network Validation (GEODNET vs ONOCOY)
+      try {
+        const { runCrossValidator } = require("./agents/cross-validator");
+        const cv = runCrossValidator(db, dataDir);
+        if (cv.regions.length > 0) {
+          console.log(`[CROSS-VALIDATOR] ${cv.regions.length} overlapping regions, agreement=${cv.overall_agreement}, ${cv.station_flags.length} flagged`);
+          if (cv.station_flags.length > 0) {
+            emitEvent("trust_change", "warning", `${cv.station_flags.length} cross-network flags`, `Cross-validation found ${cv.station_flags.length} stations underperforming vs other network`, { flags: cv.station_flags.length });
+          }
+        }
+      } catch (err) {
+        console.error("[CROSS-VALIDATOR] Failed:", err);
+      }
+
+      // Step 6d: Adversarial Station Detection (DePIN gaming)
+      try {
+        const { runAdversarialDetector } = require("./agents/adversarial-detector");
+        const adv = runAdversarialDetector(db, dataDir);
+        if (adv.total_flagged > 0) {
+          console.log(`[ADVERSARIAL] ${adv.total_flagged} suspicious (${adv.clone_clusters.length} clones, ${adv.zombie_stations.length} zombies)`);
+          emitEvent("trust_change", "critical", `${adv.total_flagged} adversarial stations detected`, `Clone: ${adv.clone_clusters.length}, Zombie: ${adv.zombie_stations.length}`, { total: adv.total_flagged });
+        }
+      } catch (err) {
+        console.error("[ADVERSARIAL] Failed:", err);
+      }
+
+      // Step 6e: Session Feedback Loop (validate zones against actual user results)
       try {
         const { runSessionFeedback } = require("./agents/session-feedback");
         const feedback = runSessionFeedback(db, dataDir);
