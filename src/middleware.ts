@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
-  const p = request.nextUrl.pathname;
-  if (p === "/api/health") return NextResponse.next();
+  const pathname = request.nextUrl.pathname;
+  if (pathname === "/api/health") return NextResponse.next();
+  if (pathname.startsWith("/api/events")) return NextResponse.next(); // SSE
   if (process.env.NODE_ENV === "development") return NextResponse.next();
 
   // API Key auth (for Wizard, customer dashboard, external consumers)
   const apiKey = process.env.API_KEY;
-  if (apiKey && p.startsWith("/api/")) {
+  if (apiKey && pathname.startsWith("/api/")) {
     const keyHeader = request.headers.get("x-api-key");
     if (keyHeader === apiKey) return NextResponse.next();
   }
@@ -23,8 +24,8 @@ export function middleware(request: NextRequest) {
     const [scheme, encoded] = authHeader.split(" ");
     if (scheme === "Basic" && encoded) {
       const decoded = atob(encoded);
-      const [u, p] = decoded.split(":");
-      if (u === user && p === pass) return NextResponse.next();
+      const [authUser, authPass] = decoded.split(":");
+      if (authUser === user && authPass === pass) return NextResponse.next();
     }
   }
 
