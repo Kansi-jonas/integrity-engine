@@ -311,15 +311,13 @@ export function startAutoSync() {
         console.error("[CONFIG-GEN] Failed:", err);
       }
 
-      // Step 6b: Generate optimal zones from qualified stations
+      // Step 6b: Build zones from H3 quality cells (replaces old zone generator)
       try {
-        const { generateIntegrityZones } = require("./wizard/zone-generator");
-        const zones = generateIntegrityZones(db, dataDir);
-        const gapZones = zones.filter((z: any) => z.zone_type === "onocoy_gap").length;
-        const upgradeZones = zones.filter((z: any) => z.zone_type === "onocoy_upgrade").length;
-        console.log(`[ZONE-GEN] ${zones.length} zones (GEODNET primary, ${gapZones} ONOCOY gaps, ${upgradeZones} ONOCOY upgrades)`);
+        const { buildZonesFromQuality } = require("./zone-builder");
+        const zoneResult = buildZonesFromQuality(db, dataDir);
+        console.log(`[ZONE-BUILDER] ${zoneResult.stats.zones_created} zones (${zoneResult.stats.full_rtk_zones} full RTK, ${zoneResult.stats.degraded_zones} degraded) — ${zoneResult.stats.coverage_area_km2} km² coverage`);
       } catch (err) {
-        console.error("[ZONE-GEN] Failed:", err);
+        console.error("[ZONE-BUILDER] Failed:", err);
       }
 
       // Step 6c: Cross-Network Validation (GEODNET vs ONOCOY)
