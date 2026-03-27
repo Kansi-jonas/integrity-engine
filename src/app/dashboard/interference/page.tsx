@@ -71,19 +71,19 @@ export default function InterferencePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen p-4 sm:p-6 lg:p-8">
+      <div className="max-w-[1600px] mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <Link href="/dashboard" className="text-sm text-blue-600 hover:underline flex items-center gap-1 mb-1"><ArrowLeft className="h-3 w-3" /> Dashboard</Link>
-            <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-              <Zap className="h-5 w-5 text-amber-500" /> Interference Detection
+            <Link href="/dashboard" className="text-[13px] text-[var(--color-brand)] hover:underline flex items-center gap-1 mb-1"><ArrowLeft className="h-3 w-3" /> Dashboard</Link>
+            <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--color-text-primary)] flex items-center gap-2">
+              Interference Detection
             </h1>
-            <p className="text-sm text-gray-500">SHIELD Agent — Jamming, Spoofing, Ionospheric Events</p>
+            <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">SHIELD Agent — Jamming, Spoofing, Ionospheric Events</p>
           </div>
-          <button onClick={fetchData} disabled={loading} className="p-2 rounded-lg hover:bg-white border">
-            <RefreshCw className={`h-4 w-4 text-gray-500 ${loading ? "animate-spin" : ""}`} />
+          <button onClick={fetchData} disabled={loading} className="p-2 rounded-lg hover:bg-white border border-[var(--color-border)] transition shadow-[var(--shadow-xs)]">
+            <RefreshCw className={`h-4 w-4 text-[var(--color-text-secondary)] ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
 
@@ -93,12 +93,14 @@ export default function InterferencePage() {
             const Icon = cfg.icon;
             const count = typeCounts[type] || 0;
             return (
-              <div key={type} className="rounded-lg border bg-white p-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <Icon className={`h-4 w-4 ${cfg.color}`} />
-                  <span className="text-xs font-medium text-gray-500 uppercase">{cfg.label}</span>
+              <div key={type} className="rounded-xl border border-[var(--color-border)] bg-white p-4 md:p-5 shadow-[var(--shadow-xs)]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">{cfg.label}</span>
+                  <div className="w-8 h-8 rounded-lg bg-[var(--color-gray-50)] flex items-center justify-center">
+                    <Icon className={`h-4 w-4 ${cfg.color}`} />
+                  </div>
                 </div>
-                <div className="text-2xl font-bold">{count}</div>
+                <div className="text-[22px] font-semibold text-[var(--color-text-primary)] tabular-nums">{count}</div>
               </div>
             );
           })}
@@ -106,36 +108,40 @@ export default function InterferencePage() {
 
         {/* Event List */}
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Recent Events</h2>
+          <h2 className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Recent Events</h2>
           {recent.length === 0 ? (
-            <div className="rounded-lg border bg-white p-8 text-center text-gray-500">
-              No interference events detected. SHIELD is monitoring.
+            <div className="rounded-xl border border-[var(--color-border)] bg-white p-12 text-center shadow-[var(--shadow-xs)]">
+              <Shield className="h-10 w-10 text-[var(--color-gray-300)] mx-auto mb-3" />
+              <p className="text-[14px] text-[var(--color-text-secondary)]">No interference events detected</p>
+              <p className="text-[12px] text-[var(--color-text-tertiary)] mt-1">SHIELD is monitoring every 5 minutes</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {recent.map(event => {
+            <div className="rounded-xl border border-[var(--color-border)] bg-white shadow-[var(--shadow-xs)] overflow-hidden">
+              {recent.map((event, i) => {
                 const cfg = TYPE_CONFIG[event.classification] || TYPE_CONFIG.unknown;
                 const Icon = cfg.icon;
                 return (
-                  <div key={event.id} className={`rounded-lg border bg-white p-4 ${event.severity === "critical" ? "border-red-200" : event.severity === "warning" ? "border-amber-200" : "border-gray-200"}`}>
-                    <div className="flex items-start gap-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.color}`}>
-                        <Icon className="h-3 w-3" /> {cfg.label}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm text-gray-900">{event.description}</div>
-                        <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
-                          <span>{event.affected_users} users</span>
-                          <span>{event.affected_stations.length} stations</span>
-                          <span>Confidence: {Math.round(event.confidence * 100)}%</span>
-                          {event.region && <span>({event.region.lat.toFixed(1)}, {event.region.lon.toFixed(1)})</span>}
-                          <span>{new Date(event.start_time).toLocaleString("de-DE")}</span>
-                        </div>
+                  <div key={event.id} className={`flex items-start gap-3 px-5 py-4 ${i < recent.length - 1 ? "border-b border-[var(--color-border-light)]" : ""} hover:bg-[var(--color-gray-25)] transition-colors`}>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${cfg.bg} ${cfg.color}`}>
+                      <Icon className="h-3 w-3" /> {cfg.label}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] text-[var(--color-text-primary)]">{event.description}</div>
+                      <div className="flex items-center gap-4 mt-1 text-[12px] text-[var(--color-text-tertiary)]">
+                        <span>{event.affected_users} users</span>
+                        <span>{event.affected_stations.length} stations</span>
+                        <span>Confidence: {Math.round(event.confidence * 100)}%</span>
+                        {event.region && <span>({event.region.lat.toFixed(1)}, {event.region.lon.toFixed(1)})</span>}
+                        <span>{new Date(event.start_time).toLocaleString("de-DE")}</span>
                       </div>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${event.severity === "critical" ? "bg-red-100 text-red-700" : event.severity === "warning" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600"}`}>
-                        {event.severity}
-                      </span>
                     </div>
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${
+                      event.severity === "critical" ? "bg-[var(--color-danger-muted)] text-[var(--color-danger)] border-red-200"
+                      : event.severity === "warning" ? "bg-[var(--color-warning-muted)] text-[var(--color-warning)] border-amber-200"
+                      : "bg-[var(--color-gray-50)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
+                    }`}>
+                      {event.severity}
+                    </span>
                   </div>
                 );
               })}
@@ -144,9 +150,9 @@ export default function InterferencePage() {
         </div>
 
         {/* Footer */}
-        <div className="text-center text-xs text-gray-400 pb-4">
+        <p className="text-[11px] text-[var(--color-text-tertiary)] text-center">
           Last scan: {data?.last_run ? new Date(data.last_run).toLocaleString("de-DE") : "—"}
-        </div>
+        </p>
       </div>
     </div>
   );

@@ -106,22 +106,22 @@ export default function ConfigPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen p-4 sm:p-6 lg:p-8">
+      <div className="max-w-[1600px] mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <Link href="/dashboard" className="text-sm text-blue-600 hover:underline flex items-center gap-1 mb-1">
+            <Link href="/dashboard" className="text-[13px] text-[var(--color-brand)] hover:underline flex items-center gap-1 mb-1">
               <ArrowLeft className="h-3 w-3" /> Dashboard
             </Link>
-            <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-              <Settings className="h-5 w-5" /> Caster Configuration
+            <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--color-text-primary)]">
+              Caster Configuration
             </h1>
-            <p className="text-sm text-gray-500">Quality-gated station config for Alberding NTRIP Caster</p>
+            <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">Quality-gated station config for Alberding NTRIP Caster</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={fetchAll} disabled={loading} className="p-2 rounded-lg hover:bg-white border">
-              <RefreshCw className={`h-4 w-4 text-gray-500 ${loading ? "animate-spin" : ""}`} />
+            <button onClick={fetchAll} disabled={loading} className="p-2 rounded-lg hover:bg-white border border-[var(--color-border)] transition shadow-[var(--shadow-xs)]">
+              <RefreshCw className={`h-4 w-4 text-[var(--color-text-secondary)] ${loading ? "animate-spin" : ""}`} />
             </button>
             <button onClick={handleDeploy} disabled={deploying}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
