@@ -87,20 +87,39 @@ export async function POST(req: NextRequest) {
         console.log(`[TRIGGER] Config Generator: skipped (${e})`);
       }
 
-      // Step 7: Zone Builder (H3 → zones → wizard format)
+      // Step 7: Zone Builder V2 (Global GEODNET + ONOCOY Overlays)
       let zonesCreated = 0;
       try {
-        const { buildZonesFromQuality } = require("@/lib/zone-builder");
-        const zoneResult = buildZonesFromQuality(db, dataDir);
-        zonesCreated = zoneResult.stats.zones_created;
-        console.log(`[TRIGGER] Zone Builder: ${zonesCreated} zones (${zoneResult.stats.full_rtk_zones} full RTK, ${zoneResult.stats.degraded_zones} degraded) — ${zoneResult.stats.coverage_area_km2} km²`);
+        const { buildZonesV2 } = require("@/lib/zone-builder-v2");
+        const zoneResult = buildZonesV2(db, dataDir);
+        zonesCreated = zoneResult.stats.total_overlays;
+        console.log(`[TRIGGER] Zone V2: 1 Global GEODNET + ${zonesCreated} ONOCOY overlays (${zoneResult.stats.onocoy_primary} primary, ${zoneResult.stats.onocoy_failover} failover) — ~${zoneResult.stats.estimated_config_lines} config lines`);
 
-        // Convert to Wizard format
-        const { convertZonesToWizard } = require("@/lib/zone-to-config");
-        const wizardZones = convertZonesToWizard(zoneResult, dataDir);
-        console.log(`[TRIGGER] Zone-to-Config: ${Object.keys(wizardZones).length} wizard zones`);
+        // Thompson Sampling: stochastic priorities for natural exploration
+        try {
+          const { logThompsonDecisions, thompsonSamplePriorities } = require("@/lib/thompson-sampling");
+          const trustPath = require("path").join(dataDir, "trust-state.json");
+          if (require("fs").existsSync(trustPath)) {
+            const trustData = JSON.parse(require("fs").readFileSync(trustPath, "utf-8"));
+            const samples = thompsonSamplePriorities(trustData.stations || {});
+            logThompsonDecisions(samples, dataDir);
+          }
+        } catch (e) {
+          console.log(`[TRIGGER] Thompson Sampling: skipped (${e})`);
+        }
+
+        // ONOCOY Gap-Fill
+        try {
+          const { runOnocoyGapFill } = require("@/lib/agents/onocoy-gapfill");
+          const gapFill = runOnocoyGapFill(db, dataDir);
+          if (gapFill.stats.zones_created > 0) {
+            console.log(`[TRIGGER] ONOCOY Gap-Fill: ${gapFill.stats.zones_created} zones (${gapFill.stats.onocoy_survey_grade} survey-grade)`);
+          }
+        } catch (e) {
+          console.log(`[TRIGGER] ONOCOY Gap-Fill: skipped (${e})`);
+        }
       } catch (e) {
-        console.log(`[TRIGGER] Zone Builder: skipped (${e})`);
+        console.log(`[TRIGGER] Zone Builder V2: skipped (${e})`);
       }
 
       // Step 8: Session Feedback
@@ -113,7 +132,12 @@ export async function POST(req: NextRequest) {
       }
 
       console.log("[TRIGGER] Quality pipeline complete.");
-      return NextResponse.json({ status: "ok", pipeline: "quality", stations: stationScores.length, trust: trustScores.length, excluded, h3_cells: h3Count, zones: zonesCreated });
+      return NextResponse.json({
+        status: "ok", pipeline: "quality",
+        stations: stationScores.length, trust: trustScores.length, excluded,
+        h3_cells: h3Count, onocoy_overlays: zonesCreated,
+        architecture: "1 Global GEODNET + N ONOCOY Overlays",
+      });
 
     } else if (pipeline === "ml") {
       console.log("[TRIGGER] Manual ML retrain started...");

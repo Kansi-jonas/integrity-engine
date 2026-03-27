@@ -55,13 +55,21 @@ export async function GET(req: NextRequest) {
       t.avg_quality = t.count > 0 ? Math.round(t.avg_quality / t.count * 100) / 100 : 0;
     }
 
-    // Load zone build result
+    // Load zone build V2 result (Global + Overlays)
     let zones: any[] = [];
+    let zoneV2: any = null;
     try {
-      const zbPath = path.join(dataDir, "zone-build.json");
-      if (fs.existsSync(zbPath)) {
-        const zb = JSON.parse(fs.readFileSync(zbPath, "utf-8"));
-        zones = zb.zones || [];
+      const v2Path = path.join(dataDir, "zone-build-v2.json");
+      if (fs.existsSync(v2Path)) {
+        zoneV2 = JSON.parse(fs.readFileSync(v2Path, "utf-8"));
+        zones = zoneV2.overlays || [];
+      } else {
+        // Fallback to V1
+        const zbPath = path.join(dataDir, "zone-build.json");
+        if (fs.existsSync(zbPath)) {
+          const zb = JSON.parse(fs.readFileSync(zbPath, "utf-8"));
+          zones = zb.zones || [];
+        }
       }
     } catch {}
 
@@ -100,11 +108,15 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      version: "h3",
-      cells: cellsWithCoords.slice(0, 5000), // Cap for performance
+      version: "h3-v2",
+      architecture: "1 Global GEODNET + N ONOCOY Overlays",
+      cells: cellsWithCoords.slice(0, 5000),
       totalCells: cells.length,
       tierCounts: Object.entries(tierCounts).map(([tier, data]) => ({ zone_tier: tier, ...data })),
-      zones,
+      // V2: overlay zones instead of clustered zones
+      overlays: zones,
+      global_geodnet: zoneV2?.global_geodnet || { enabled: true, priority: 10, mountpoint: "AUTO" },
+      overlay_stats: zoneV2?.stats || null,
       stations: {
         total: stationStats.total || 0,
         good: stationStats.good || 0,

@@ -24,10 +24,14 @@ const QualityMap = dynamic(() => import("./quality-map"), {
 
 interface QualityData {
   version: string;
+  architecture?: string;
   cells: any[];
   totalCells: number;
   tierCounts: Array<{ zone_tier: string; count: number; avg_quality: number }>;
   zones: any[];
+  overlays?: any[];
+  global_geodnet?: { enabled: boolean; priority: number; mountpoint: string };
+  overlay_stats?: any;
   stations: { total: number; good: number; poor: number; avgUQ: number; avgUptime: number };
   computed_at: string | null;
 }
@@ -96,7 +100,7 @@ export default function QualityPage() {
               </span>
             </div>
             <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">
-              Physics-based coverage quality from {data?.totalCells?.toLocaleString() || 0} hexagonal cells
+              {data?.architecture || "Physics-based coverage quality"} — {data?.totalCells?.toLocaleString() || 0} cells, {(data as any)?.overlays?.length || 0} ONOCOY overlays
             </p>
           </div>
           <button onClick={fetchData} disabled={loading} className="p-2 rounded-lg hover:bg-white border border-[var(--color-border)] transition shadow-[var(--shadow-xs)]">
@@ -150,16 +154,29 @@ export default function QualityPage() {
               H3 hexagons colored by quality tier — green = Full RTK, yellow = Degraded, orange = Float, red = No Coverage
             </p>
           </div>
-          <QualityMap cells={data?.cells || []} zones={data?.zones || []} />
+          <QualityMap cells={data?.cells || []} zones={(data as any)?.overlays || data?.zones || []} />
         </div>
 
-        {/* Zone List */}
-        {data?.zones && data.zones.length > 0 && (
+        {/* Global GEODNET Banner */}
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-[var(--shadow-xs)]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+              <Shield className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <h3 className="text-[15px] font-semibold text-emerald-900">Global GEODNET — Priority {(data as any)?.global_geodnet?.priority || 10}</h3>
+              <p className="text-[13px] text-emerald-700">Worldwide fallback via AUTO mountpoint — 25K+ stations, always available</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ONOCOY Overlay List */}
+        {((data as any)?.overlays || data?.zones || []).length > 0 && (
           <div className="rounded-xl border border-[var(--color-border)] bg-white shadow-[var(--shadow-xs)]">
             <div className="px-5 py-4 border-b border-[var(--color-border-light)]">
-              <h2 className="text-[15px] font-semibold text-[var(--color-text-primary)]">Generated Zones</h2>
+              <h2 className="text-[15px] font-semibold text-[var(--color-text-primary)]">ONOCOY Overlay Zones</h2>
               <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">
-                Zones ready for Alberding caster configuration
+                Targeted overlays where ONOCOY improves or fills gaps in GEODNET coverage
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -167,31 +184,38 @@ export default function QualityPage() {
                 <thead>
                   <tr className="border-b border-[var(--color-border-light)]">
                     <th className="px-5 py-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Zone</th>
-                    <th className="px-5 py-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Tier</th>
-                    <th className="px-5 py-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Network</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Type</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Hardware</th>
+                    <th className="px-5 py-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Reason</th>
                     <th className="px-5 py-3 text-right text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Priority</th>
-                    <th className="px-5 py-3 text-right text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Quality</th>
-                    <th className="px-5 py-3 text-right text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Stations</th>
-                    <th className="px-5 py-3 text-right text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Area</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Confidence</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Validation</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.zones.map((z: any, i: number) => {
-                    const tierCfg = TIER_CONFIG[z.zone_tier] || TIER_CONFIG.no_coverage;
-                    const TierIcon = tierCfg.icon;
+                  {((data as any)?.overlays || data?.zones || []).map((z: any, i: number) => {
+                    const isPrimary = z.type === "onocoy_primary" || z.priority <= 10;
+                    const validationColor = z.validation_status === "confirmed" ? "text-emerald-700 bg-emerald-50"
+                      : z.validation_status === "live_testing" ? "text-amber-700 bg-amber-50"
+                      : z.validation_status === "rejected" ? "text-red-700 bg-red-50"
+                      : "text-[var(--color-text-tertiary)] bg-[var(--color-gray-50)]";
                     return (
                       <tr key={z.id || i} className="border-b border-[var(--color-border-light)] last:border-0 hover:bg-[var(--color-gray-25)] transition-colors">
-                        <td className="px-5 py-3 font-medium text-[var(--color-text-primary)]">{z.name}</td>
+                        <td className="px-5 py-3 font-medium text-[var(--color-text-primary)]">{z.name || z.onocoy_station}</td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tierCfg.bg} ${tierCfg.color}`}>
-                            <TierIcon className="h-3 w-3" /> {tierCfg.label}
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${isPrimary ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-[var(--color-gray-50)] border-[var(--color-border)] text-[var(--color-text-secondary)]"}`}>
+                            {isPrimary ? "Primary" : "Failover"}
                           </span>
                         </td>
-                        <td className="px-5 py-3 text-[var(--color-text-secondary)]">{z.network}</td>
+                        <td className="px-5 py-3 text-[var(--color-text-secondary)]">{z.hardware_class || "—"}</td>
+                        <td className="px-5 py-3 text-[var(--color-text-secondary)] text-[12px]">{(z.reason || "").replace(/_/g, " ")}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">{z.priority}</td>
-                        <td className="px-5 py-3 text-right tabular-nums font-medium">{(z.avg_quality * 100).toFixed(0)}%</td>
-                        <td className="px-5 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">{z.station_count}</td>
-                        <td className="px-5 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">{z.area_km2?.toLocaleString()} km²</td>
+                        <td className="px-5 py-3 text-right tabular-nums font-medium">{((z.onocoy_confidence || z.avg_quality || 0) * 100).toFixed(0)}%</td>
+                        <td className="px-5 py-3 text-right">
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${validationColor}`}>
+                            {z.validation_status || "untested"}
+                          </span>
+                        </td>
                       </tr>
                     );
                   })}
