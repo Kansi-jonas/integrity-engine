@@ -82,47 +82,52 @@ export default function QualityMap({
       }
     }
 
-    // ── Render Zone Boundaries ──────────────────────────────────────────
+    // ── Render Zone/Overlay Boundaries ──────────────────────────────────
     if (zones.length > 0) {
       for (const zone of zones) {
-        if (!zone.geofence) continue;
-
         try {
-          const color = TIER_COLORS[zone.zone_tier] || "#6b7280";
+          // V2 overlay format: lat, lon, radius_m directly on zone
+          // V1 format: zone.geofence.circle.lat etc
+          const lat = zone.lat || zone.geofence?.circle?.lat;
+          const lon = zone.lon || zone.geofence?.circle?.lon;
+          const radius = zone.radius_m || zone.geofence?.circle?.radius_m;
 
-          if (zone.geofence_type === "circle" && zone.geofence.circle) {
-            const c = zone.geofence.circle;
-            L.circle([c.lat, c.lon], {
-              radius: c.radius_m,
-              color: "#ffffff",
+          if (!lat || !lon) continue;
+
+          // Color by type: primary = blue, failover = gray, or by tier
+          const isPrimary = zone.type === "onocoy_primary" || zone.priority <= 10;
+          const color = zone.zone_tier
+            ? (TIER_COLORS[zone.zone_tier] || "#3b82f6")
+            : isPrimary ? "#3b82f6" : "#6b7280";
+
+          const label = zone.name || zone.onocoy_station || "Zone";
+          const confidence = zone.onocoy_confidence || zone.avg_quality || 0;
+          const hw = zone.hardware_class || "";
+          const validation = zone.validation_status || "untested";
+
+          if (radius) {
+            L.circle([lat, lon], {
+              radius,
+              color: isPrimary ? "#3b82f6" : "#9ca3af",
               fillColor: color,
-              fillOpacity: 0.05,
-              weight: 2,
-              dashArray: "6 4",
-              opacity: 0.6,
+              fillOpacity: isPrimary ? 0.12 : 0.06,
+              weight: isPrimary ? 2 : 1.5,
+              dashArray: isPrimary ? undefined : "6 4",
+              opacity: 0.7,
             }).addTo(map).bindTooltip(
-              `<b>${zone.name}</b><br>` +
-              `Quality: ${(zone.avg_quality * 100).toFixed(0)}% | Stations: ${zone.station_count}<br>` +
-              `Priority: ${zone.priority} | Area: ${zone.area_km2?.toLocaleString()} km²`,
+              `<b>${label}</b><br>` +
+              `Type: ${isPrimary ? "ONOCOY Primary" : "ONOCOY Failover"}<br>` +
+              `Priority: ${zone.priority} | Confidence: ${(confidence * 100).toFixed(0)}%<br>` +
+              (hw ? `Hardware: ${hw}<br>` : "") +
+              `Validation: ${validation}` +
+              (zone.reason ? `<br>Reason: ${zone.reason.replace(/_/g, " ")}` : ""),
               { direction: "top", className: "custom-tooltip" }
             );
-          } else if (zone.geofence_type === "polygon" && zone.geofence.polygon?.points) {
+          } else if (zone.geofence?.polygon?.points) {
             L.polygon(
               zone.geofence.polygon.points.map((p: number[]) => [p[0], p[1]]),
-              {
-                color: "#ffffff",
-                fillColor: color,
-                fillOpacity: 0.05,
-                weight: 2,
-                dashArray: "6 4",
-                opacity: 0.6,
-              }
-            ).addTo(map).bindTooltip(
-              `<b>${zone.name}</b><br>` +
-              `Quality: ${(zone.avg_quality * 100).toFixed(0)}% | Stations: ${zone.station_count}<br>` +
-              `Priority: ${zone.priority} | Area: ${zone.area_km2?.toLocaleString()} km²`,
-              { direction: "top", className: "custom-tooltip" }
-            );
+              { color, fillColor: color, fillOpacity: 0.08, weight: 2, dashArray: "6 4", opacity: 0.6 }
+            ).addTo(map);
           }
         } catch {}
       }
