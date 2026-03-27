@@ -199,12 +199,20 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
     });
   }
 
+  // ── Smart Clustering: merge nearby overlays into regional fences ─────
+  // Instead of 100 individual circles in Australia, create 3-5 regional circles
+  const clustered = clusterNearbyOverlays(overlays, 50); // 50km cluster radius
+  if (clustered.length < overlays.length) {
+    console.log(`[ZONE-V2] Clustered ${overlays.length} overlays → ${clustered.length} regional fences`);
+  }
+  overlays.length = 0;
+  overlays.push(...clustered);
+
   // ── Overlay Limit ──────────────────────────────────────────────────────
   if (overlays.length > MAX_OVERLAYS) {
-    // Keep highest confidence overlays
     overlays.sort((a, b) => b.onocoy_confidence - a.onocoy_confidence);
     overlays.length = MAX_OVERLAYS;
-    console.log(`[ZONE-V2] Trimmed to ${MAX_OVERLAYS} overlays (dropped ${overlayIdx - MAX_OVERLAYS} low-confidence)`);
+    console.log(`[ZONE-V2] Trimmed to ${MAX_OVERLAYS} overlays`);
   }
 
   // Sort by priority then confidence
@@ -340,6 +348,81 @@ function loadTrustScores(dataDir: string): Map<string, number> {
     for (const s of (data.scores || [])) map.set(s.station, s.composite_score ?? s.combined_score ?? 0.5);
   } catch {}
   return map;
+}
+
+// ─── Smart Overlay Clustering ────────────────────────────────────────────────
+// Merges nearby overlays into regional fences.
+// Instead of 100 circles in Australia → 3-5 regional circles.
+
+function clusterNearbyOverlays(overlays: OverlayZone[], clusterRadiusKm: number): OverlayZone[] {
+  if (overlays.length <= 10) return overlays; // Don't cluster small sets
+
+  const used = new Set<number>();
+  const clustered: OverlayZone[] = [];
+
+  // Sort by confidence descending — best stations anchor clusters
+  const sorted = overlays.map((o, i) => ({ ...o, _idx: i })).sort((a, b) => b.onocoy_confidence - a.onocoy_confidence);
+
+  for (const anchor of sorted) {
+    if (used.has(anchor._idx)) continue;
+    used.add(anchor._idx);
+
+    // Find all overlays within cluster radius
+    const members: typeof sorted = [anchor];
+    for (const candidate of sorted) {
+      if (used.has(candidate._idx)) continue;
+      const dist = haversineKm(anchor.lat, anchor.lon, candidate.lat, candidate.lon);
+      if (dist <= clusterRadiusKm) {
+        members.push(candidate);
+        used.add(candidate._idx);
+      }
+    }
+
+    if (members.length === 1) {
+      // Single station — keep as individual overlay
+      const { _idx, ...overlay } = anchor;
+      clustered.push(overlay);
+    } else {
+      // Multiple stations — merge into regional fence
+      const centerLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
+      const centerLon = members.reduce((s, m) => s + m.lon, 0) / members.length;
+
+      // Radius: cover all member stations + buffer
+      const maxDist = Math.max(...members.map(m => haversineKm(centerLat, centerLon, m.lat, m.lon)));
+      const radius = Math.round(Math.min(MAX_OVERLAY_RADIUS_M, (maxDist + 15) * 1000)); // +15km buffer
+
+      // Best confidence and priority from members
+      const bestConfidence = Math.max(...members.map(m => m.onocoy_confidence));
+      const bestPriority = Math.min(...members.map(m => m.priority));
+      const bestHardware = members.find(m => m.hardware_class === "survey_grade")?.hardware_class || members[0].hardware_class;
+      const stationNames = members.map(m => m.onocoy_station).join(", ");
+
+      // Best validation status
+      const hasConfirmed = members.some(m => m.validation_status === "confirmed");
+      const hasTesting = members.some(m => m.validation_status === "live_testing");
+      const validationStatus = hasConfirmed ? "confirmed" : hasTesting ? "live_testing" : "untested";
+
+      clustered.push({
+        id: `ono_region_${clustered.length + 1}`,
+        name: `ONOCOY ${getRegionName(centerLat, centerLon)} (${members.length} stations)`,
+        type: bestPriority <= 10 ? "onocoy_primary" : "onocoy_failover",
+        reason: members[0].reason,
+        priority: bestPriority,
+        geofence_type: "circle",
+        lat: Math.round(centerLat * 1e6) / 1e6,
+        lon: Math.round(centerLon * 1e6) / 1e6,
+        radius_m: radius,
+        onocoy_station: stationNames.length > 50 ? `${members.length} stations` : stationNames,
+        hardware_class: bestHardware,
+        geodnet_quality: Math.round(members.reduce((s, m) => s + m.geodnet_quality, 0) / members.length * 100) / 100,
+        onocoy_confidence: Math.round(bestConfidence * 100) / 100,
+        validation_status: validationStatus,
+        enabled: true,
+      });
+    }
+  }
+
+  return clustered;
 }
 
 function getRegionName(lat: number, lon: number): string {
