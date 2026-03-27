@@ -1,124 +1,273 @@
-'use client'
-import React, { useState } from 'react'
-import Image from 'next/image'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+"use client";
+
+import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { useState, useEffect } from "react";
 import {
-  LayoutDashboard, Users, Globe, Map, Radio, Settings, FileText,
-  ShieldCheck, Rocket, ChevronLeft, ChevronRight, Wifi, Layers,
-  KeyRound, FlaskConical, Shield, Zap, Activity, CloudLightning,
-  MapPin, Eye,
-} from 'lucide-react'
-import { clsx } from 'clsx'
+  Shield, Activity, Map, Eye, Radio, Zap, Settings,
+  Globe, Layers, Users, Server, Upload, FileCode, CheckCircle,
+  ChevronLeft, ChevronDown, Menu, X, BarChart3, AlertTriangle,
+  type LucideIcon,
+} from "lucide-react";
 
-const INTEGRITY_ITEMS = [
-  { href: '/dashboard', label: 'Integrity Overview', icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/trust', label: 'Station Trust', icon: Shield },
-  { href: '/dashboard/interference', label: 'Interference', icon: Zap },
-  { href: '/dashboard/config', label: 'Quality Gates', icon: ShieldCheck },
-] as const
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-const WIZARD_ITEMS = [
-  { href: '/dashboard/wizard', label: 'Wizard Home', icon: Settings, exact: true },
-  { href: '/dashboard/wizard/zones', label: 'MERIDIAN Zones', icon: Map },
-  { href: '/dashboard/wizard/networks', label: 'Networks', icon: Wifi },
-  { href: '/dashboard/wizard/network-mountpoints', label: 'Network Mounts', icon: Layers },
-  { href: '/dashboard/wizard/mountpoints', label: 'RTKdata Mounts', icon: Globe },
-  { href: '/dashboard/wizard/users', label: 'Users & Groups', icon: Users },
-  { href: '/dashboard/wizard/accounts', label: 'Accounts', icon: KeyRound },
-  { href: '/dashboard/wizard/streams', label: 'Streams', icon: Radio },
-  { href: '/dashboard/wizard/settings', label: 'Settings', icon: Settings },
-  { href: '/dashboard/wizard/quality-scans', label: 'Quality Scans', icon: FlaskConical },
-  { href: '/dashboard/wizard/config-preview', label: 'Config Preview', icon: FileText },
-  { href: '/dashboard/wizard/validation', label: 'Validation', icon: ShieldCheck },
-  { href: '/dashboard/wizard/deploy', label: 'Deploy', icon: Rocket },
-] as const
+interface NavItemDef {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  exact?: boolean;
+}
 
-export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false)
-  const pathname = usePathname()
+interface NavSectionDef {
+  id: string;
+  label: string;
+  items: NavItemDef[];
+  defaultOpen?: boolean;
+  alwaysOpen?: boolean;
+}
 
-  const isActive = (href: string, exact?: boolean) => {
-    if (exact) return pathname === href
-    return pathname === href || pathname.startsWith(href + '/')
+// ---------------------------------------------------------------------------
+// Navigation Structure
+// ---------------------------------------------------------------------------
+
+const sections: NavSectionDef[] = [
+  {
+    id: "monitor",
+    label: "Integrity Monitor",
+    alwaysOpen: true,
+    defaultOpen: true,
+    items: [
+      { href: "/dashboard", label: "Overview", icon: Shield, exact: true },
+      { href: "/dashboard/trust", label: "Station Trust", icon: Eye },
+      { href: "/dashboard/interference", label: "Interference", icon: AlertTriangle },
+      { href: "/dashboard/forecast", label: "Quality Forecast", icon: BarChart3 },
+      { href: "/dashboard/config", label: "Config & Gates", icon: Settings },
+    ],
+  },
+  {
+    id: "wizard",
+    label: "GNSS Wizard",
+    defaultOpen: false,
+    items: [
+      { href: "/dashboard/wizard/zones", label: "Zones", icon: Globe },
+      { href: "/dashboard/wizard/networks", label: "Networks", icon: Radio },
+      { href: "/dashboard/wizard/network-mountpoints", label: "Network Mounts", icon: Layers },
+      { href: "/dashboard/wizard/mountpoints", label: "Mountpoints", icon: Server },
+      { href: "/dashboard/wizard/users", label: "Users & Groups", icon: Users },
+      { href: "/dashboard/wizard/streams", label: "Streams", icon: Activity },
+      { href: "/dashboard/wizard/accounts", label: "Accounts", icon: Users },
+      { href: "/dashboard/wizard/config-preview", label: "Config Preview", icon: FileCode },
+      { href: "/dashboard/wizard/validation", label: "Validation", icon: CheckCircle },
+      { href: "/dashboard/wizard/deploy", label: "Deploy", icon: Upload },
+      { href: "/dashboard/wizard/settings", label: "Caster Settings", icon: Settings },
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    defaultOpen: false,
+    items: [
+      { href: "/dashboard/wizard/quality-scans", label: "Quality Scans", icon: Zap },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function NavItem({
+  item, active, collapsed,
+}: {
+  item: NavItemDef; active: boolean; collapsed: boolean;
+}) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      className={`
+        group flex items-center gap-3 rounded-md px-3 py-2.5 md:py-2 text-[13px] font-medium
+        transition-all duration-150 ease-in-out
+        ${active
+          ? "border-l-2 border-[#0067ff] bg-[var(--color-gray-50)] text-[var(--color-gray-900)] font-semibold"
+          : "border-l-2 border-transparent text-[var(--color-gray-600)] hover:bg-[var(--color-gray-50)] hover:text-[var(--color-gray-900)]"
+        }
+        ${collapsed ? "justify-center px-2 border-l-0" : ""}
+      `}
+      title={collapsed ? item.label : undefined}
+    >
+      <Icon
+        className={`h-4 w-4 shrink-0 transition-colors duration-150 ${
+          active ? "text-[var(--color-gray-600)]" : "text-[var(--color-gray-400)] group-hover:text-[var(--color-gray-600)]"
+        }`}
+      />
+      {!collapsed && <span className="truncate">{item.label}</span>}
+    </Link>
+  );
+}
+
+function NavSection({
+  section, collapsed, isActive, expanded, onToggle,
+}: {
+  section: NavSectionDef; collapsed: boolean;
+  isActive: (item: NavItemDef) => boolean; expanded: boolean; onToggle: () => void;
+}) {
+  const isOpen = section.alwaysOpen || expanded;
+
+  if (collapsed) {
+    return (
+      <div className="mt-3">
+        {!section.alwaysOpen && <div className="mx-2 border-t border-[var(--color-gray-100)] mb-2" />}
+        <div className="space-y-0.5">
+          {section.items.map((item) => (
+            <NavItem key={item.href} item={item} active={isActive(item)} collapsed={collapsed} />
+          ))}
+        </div>
+      </div>
+    );
   }
 
-  const renderSection = (title: string, items: readonly { href: string; label: string; icon: any; exact?: boolean }[]) => (
-    <>
-      {!collapsed && (
-        <div className="px-3 pt-4 pb-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{title}</span>
+  return (
+    <div className={section.alwaysOpen ? "" : "mt-1"}>
+      {!section.alwaysOpen && (
+        <button onClick={onToggle} className="w-full flex items-center justify-between px-3 mt-5 mb-1 group">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-gray-400)]">
+            {section.label}
+          </p>
+          <ChevronDown
+            className={`h-3 w-3 text-[var(--color-gray-400)] transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}
+          />
+        </button>
+      )}
+      {isOpen && (
+        <div className="space-y-0.5">
+          {section.items.map((item) => (
+            <NavItem key={item.href} item={item} active={isActive(item)} collapsed={collapsed} />
+          ))}
         </div>
       )}
-      {collapsed && <div className="border-t border-gray-200 my-2" />}
-      {items.map(({ href, label, icon: Icon, exact }) => {
-        const active = isActive(href, exact)
-        return (
-          <Link
-            key={href}
-            href={href}
-            className={clsx(
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium',
-              'transition-all duration-150',
-              active
-                ? 'bg-[#0067ff] text-white shadow-sm'
-                : 'text-gray-600 hover:bg-white hover:text-gray-900 hover:shadow-sm',
-            )}
-            title={collapsed ? label : undefined}
-          >
-            <Icon className={clsx('flex-shrink-0', collapsed ? 'w-5 h-5' : 'w-4 h-4')} />
-            {!collapsed && <span className="truncate">{label}</span>}
-          </Link>
-        )
-      })}
-    </>
-  )
+    </div>
+  );
+}
 
-  return (
-    <aside
-      className={clsx(
-        'relative flex flex-col bg-[#f4f4f4] border-r border-gray-200 h-screen sticky top-0',
-        'transition-all duration-300 ease-in-out',
-        collapsed ? 'w-16' : 'w-56',
-      )}
-    >
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+
+export function Sidebar() {
+  const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const s of sections) initial[s.id] = s.defaultOpen ?? false;
+    return initial;
+  });
+
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
+
+  // Auto-expand section if current path is in it
+  useEffect(() => {
+    for (const s of sections) {
+      if (s.items.some(i => pathname.startsWith(i.href))) {
+        setExpandedSections(prev => ({ ...prev, [s.id]: true }));
+      }
+    }
+  }, [pathname]);
+
+  function isActive(item: NavItemDef) {
+    if (item.exact) return pathname === item.href;
+    return pathname.startsWith(item.href);
+  }
+
+  const sidebarContent = (
+    <>
       {/* Logo */}
-      <div className={clsx(
-        'flex items-center border-b border-gray-200',
-        collapsed ? 'justify-center px-2 py-4' : 'px-4 py-4',
-      )}>
+      <div className={`flex items-center h-14 border-b border-[var(--color-gray-200)] ${collapsed ? "justify-center px-2" : "px-4"}`}>
         {collapsed ? (
-          <div className="w-8 h-8 relative flex-shrink-0">
-            <Image src="/logo.png" alt="RTKdata" fill style={{ objectFit: 'contain' }} />
+          <div className="w-8 h-8 rounded-lg bg-[#0067ff] flex items-center justify-center">
+            <span className="text-white font-bold text-sm">R</span>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <div className="relative h-8 w-36">
-              <Image src="/logo.png" alt="RTKdata" fill style={{ objectFit: 'contain', objectPosition: 'left' }} priority />
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-[#0067ff] flex items-center justify-center">
+              <span className="text-white font-bold text-sm">R</span>
+            </div>
+            <div>
+              <p className="text-[13px] font-semibold text-[var(--color-gray-900)]">RTKdata</p>
+              <p className="text-[10px] text-[var(--color-gray-400)]">Integrity Engine</p>
             </div>
           </div>
         )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto">
-        {renderSection('Integrity Monitor', INTEGRITY_ITEMS)}
-        {renderSection('GNSS Wizard', WIZARD_ITEMS)}
+      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+        {sections.map((section) => (
+          <NavSection
+            key={section.id}
+            section={section}
+            collapsed={collapsed}
+            isActive={isActive}
+            expanded={expandedSections[section.id] ?? false}
+            onToggle={() => setExpandedSections(prev => ({ ...prev, [section.id]: !prev[section.id] }))}
+          />
+        ))}
       </nav>
 
-      {/* Collapse toggle */}
+      {/* Footer */}
+      {!collapsed && (
+        <div className="border-t border-[var(--color-gray-200)] px-4 py-3">
+          <p className="text-[11px] text-[var(--color-gray-400)]">
+            Integrity Engine v0.2
+          </p>
+        </div>
+      )}
+
+      {/* Collapse Toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className={clsx(
-          'absolute -right-3 top-1/2 -translate-y-1/2 z-10',
-          'w-6 h-6 rounded-full bg-white border border-gray-300',
-          'flex items-center justify-center text-gray-500',
-          'hover:bg-gray-50 hover:text-gray-700',
-          'transition-colors shadow-sm',
-        )}
+        className="hidden md:flex absolute -right-3 top-20 w-6 h-6 items-center justify-center rounded-full border border-[var(--color-gray-200)] bg-white shadow-sm hover:bg-[var(--color-gray-50)] transition-colors"
       >
-        {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+        <ChevronLeft className={`h-3 w-3 text-[var(--color-gray-500)] transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`} />
       </button>
-    </aside>
-  )
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-3 left-3 z-50 p-2 rounded-lg bg-white border border-[var(--color-gray-200)] shadow-sm"
+      >
+        <Menu className="h-5 w-5 text-[var(--color-gray-600)]" />
+      </button>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 z-40">
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
+          <aside className="relative w-60 h-full bg-white border-r border-[var(--color-gray-200)] flex flex-col shadow-lg">
+            <button onClick={() => setMobileOpen(false)} className="absolute top-3 right-3 p-1">
+              <X className="h-4 w-4 text-[var(--color-gray-500)]" />
+            </button>
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+
+      {/* Desktop sidebar */}
+      <aside
+        className={`hidden md:flex flex-col h-screen bg-white border-r border-[var(--color-gray-200)] relative transition-all duration-200 ease-in-out sticky top-0 ${
+          collapsed ? "w-14" : "w-56"
+        }`}
+      >
+        {sidebarContent}
+      </aside>
+    </>
+  );
 }

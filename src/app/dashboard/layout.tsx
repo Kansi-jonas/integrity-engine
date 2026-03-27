@@ -1,6 +1,6 @@
 "use client";
 
-import Sidebar from "@/components/layout/Sidebar";
+import { Sidebar } from "@/components/layout/Sidebar";
 import DataProvider from "@/components/layout/DataProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
