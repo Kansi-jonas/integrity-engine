@@ -1,135 +1,78 @@
-// ─── SLA Monitoring API ──────────────────────────────────────────────────────
-// GET /api/sla
-// Returns uptime, availability, and quality metrics for SLA verification.
+// ─── SLA Reporting API ───────────────────────────────────────────────────────
+// GET /api/sla — SLA metrics for Enterprise customers
+// GET /api/sla?period=7d|30d|90d|365d
+// GET /api/sla?region=eu|us|apac|global
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDb, getDataDir } from "@/lib/db";
 import fs from "fs";
 import path from "path";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const period = req.nextUrl.searchParams.get("period") || "30d";
+  const db = getDb();
+  const dataDir = getDataDir();
+
+  const periodDays = period === "7d" ? 7 : period === "90d" ? 90 : period === "365d" ? 365 : 30;
+  const since = Date.now() - periodDays * 86400000;
+
   try {
-    const db = getDb();
-    const dataDir = getDataDir();
-    const now = Date.now();
+    const stats = db.prepare(`
+      SELECT
+        COUNT(*) as total_sessions,
+        COUNT(DISTINCT username) as unique_users,
+        COUNT(DISTINCT station) as stations_used,
+        AVG(CASE WHEN fix_rate > 0 THEN fix_rate END) as avg_fix_rate,
+        AVG(CASE WHEN fix_rate >= 80 THEN 1.0 ELSE 0.0 END) * 100 as fix_success_rate,
+        AVG(duration) as avg_duration_s,
+        SUM(duration) / 3600.0 as total_hours,
+        AVG(avg_age) as avg_correction_age,
+        COUNT(CASE WHEN fix_rate = 0 AND duration < 60 THEN 1 END) as failed_sessions,
+        COUNT(CASE WHEN fix_rate >= 80 THEN 1 END) as good_sessions
+      FROM rtk_sessions
+      WHERE login_time >= ? AND station IS NOT NULL AND station != ''
+    `).get(since) as any || {};
 
-    // ── Uptime metrics ──────────────────────────────────────────────────────
-
-    // Session availability (% of time fix_rate > 70%)
-    const periods = [
-      { label: "1h", ms: 3600000 },
-      { label: "24h", ms: 86400000 },
-      { label: "7d", ms: 7 * 86400000 },
-      { label: "30d", ms: 30 * 86400000 },
-    ];
-
-    const availability: Record<string, any> = {};
-    for (const p of periods) {
-      try {
-        const stats = db.prepare(`
-          SELECT COUNT(*) as total,
-                 SUM(CASE WHEN fix_rate >= 70 THEN 1 ELSE 0 END) as good,
-                 AVG(fix_rate) as mean_fix,
-                 AVG(CASE WHEN avg_age > 0 THEN avg_age ELSE NULL END) as mean_age
-          FROM rtk_sessions
-          WHERE login_time >= ? AND station IS NOT NULL AND station != ''
-            AND NOT (fix_rate = 0 AND duration >= 0 AND duration < 60)
-        `).get(now - p.ms) as any;
-
-        availability[p.label] = {
-          total_sessions: stats?.total || 0,
-          fix_availability_pct: stats?.total > 0 ? Math.round((stats.good / stats.total) * 1000) / 10 : 0,
-          mean_fix_rate: Math.round((stats?.mean_fix || 0) * 10) / 10,
-          mean_correction_age: Math.round((stats?.mean_age || 0) * 10) / 10,
-        };
-      } catch {
-        availability[p.label] = { total_sessions: 0, fix_availability_pct: 0, mean_fix_rate: 0, mean_correction_age: 0 };
-      }
-    }
-
-    // ── Station health ──────────────────────────────────────────────────────
-
-    let stationHealth = { total: 0, online: 0, qualified: 0, excluded: 0 };
+    // Coverage quality
+    let greenPct = 0;
     try {
-      const total = db.prepare(`SELECT COUNT(*) as cnt FROM stations`).get() as any;
-      const online = db.prepare(`SELECT COUNT(*) as cnt FROM stations WHERE status IN ('ONLINE', 'ACTIVE')`).get() as any;
-      stationHealth.total = total?.cnt || 0;
-      stationHealth.online = online?.cnt || 0;
-
-      const configPath = path.join(dataDir, "qualified-stations.json");
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-        stationHealth.qualified = config.stats?.qualified_count || 0;
-        stationHealth.excluded = config.stats?.disqualified_count || 0;
-      }
+      const cp = path.join(dataDir, "coverage-optimizer.json");
+      if (fs.existsSync(cp)) greenPct = JSON.parse(fs.readFileSync(cp, "utf-8")).green_percentage || 0;
     } catch {}
 
-    // ── Anomaly count ───────────────────────────────────────────────────────
-
-    let anomalyCounts: Record<string, number> = {};
-    for (const p of periods) {
-      try {
-        const siPath = path.join(dataDir, "signal-integrity.json");
-        if (fs.existsSync(siPath)) {
-          const si = JSON.parse(fs.readFileSync(siPath, "utf-8"));
-          anomalyCounts[p.label] = (si.anomalies || []).length;
-        }
-      } catch {}
-    }
-
-    // ── Space weather impact ────────────────────────────────────────────────
-
-    let spaceWeather = null;
+    // Incidents
+    let incidents = 0;
     try {
-      const swPath = path.join(dataDir, "space-weather.json");
-      if (fs.existsSync(swPath)) {
-        const sw = JSON.parse(fs.readFileSync(swPath, "utf-8"));
-        spaceWeather = {
-          kp_index: sw.kp_index,
-          storm_level: sw.storm_level,
-          expected_impact: sw.expected_impact?.fix_rate_impact_pct || 0,
-        };
-      }
+      const ap = path.join(dataDir, "sentinel-anomalies.json");
+      if (fs.existsSync(ap)) incidents = (JSON.parse(fs.readFileSync(ap, "utf-8")).anomalies || []).length;
     } catch {}
 
-    // ── Agent health ────────────────────────────────────────────────────────
-
-    const agentFiles = [
-      { name: "SENTINEL-V2", file: "sentinel-v2-state.json", max_age_min: 10 },
-      { name: "SHIELD", file: "shield-events.json", max_age_min: 10 },
-      { name: "TRUST-V2", file: "trust-scores.json", max_age_min: 300 },
-      { name: "SPACE-WEATHER", file: "space-weather.json", max_age_min: 120 },
-      { name: "SIGNAL-INTEGRITY", file: "signal-integrity.json", max_age_min: 300 },
-    ];
-
-    const agents: Record<string, any> = {};
-    for (const a of agentFiles) {
-      try {
-        const p = path.join(dataDir, a.file);
-        if (fs.existsSync(p)) {
-          const stat = fs.statSync(p);
-          const ageMin = Math.round((now - stat.mtimeMs) / 60000);
-          agents[a.name] = {
-            status: ageMin <= a.max_age_min ? "healthy" : "stale",
-            last_update_min_ago: ageMin,
-            max_expected_age_min: a.max_age_min,
-          };
-        } else {
-          agents[a.name] = { status: "missing", last_update_min_ago: null };
-        }
-      } catch {
-        agents[a.name] = { status: "error" };
-      }
-    }
+    const totalHours = periodDays * 24;
+    const activeHours = (db.prepare(`SELECT COUNT(DISTINCT CAST(login_time / 3600000 AS INTEGER)) as h FROM rtk_sessions WHERE login_time >= ?`).get(since) as any)?.h || 0;
 
     return NextResponse.json({
-      availability,
-      station_health: stationHealth,
-      anomaly_counts: anomalyCounts,
-      space_weather: spaceWeather,
-      agents,
+      period: { days: periodDays, since: new Date(since).toISOString() },
+      availability: {
+        uptime_pct: Math.round(activeHours / Math.max(1, totalHours) * 1000) / 10,
+        sla_target: 99.5,
+      },
+      quality: {
+        avg_fix_rate: Math.round((stats.avg_fix_rate || 0) * 10) / 10,
+        fix_success_rate: Math.round((stats.fix_success_rate || 0) * 10) / 10,
+        avg_correction_age_s: Math.round((stats.avg_correction_age || 0) * 100) / 100,
+        coverage_green_pct: greenPct,
+      },
+      usage: {
+        total_sessions: stats.total_sessions || 0,
+        good_sessions: stats.good_sessions || 0,
+        failed_sessions: stats.failed_sessions || 0,
+        unique_users: stats.unique_users || 0,
+        stations_used: stats.stations_used || 0,
+        total_hours: Math.round((stats.total_hours || 0) * 10) / 10,
+      },
+      incidents: { total: incidents },
       generated_at: new Date().toISOString(),
     });
   } catch (error) {

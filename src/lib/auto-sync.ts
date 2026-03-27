@@ -168,6 +168,21 @@ export function startAutoSync() {
     }
   });
 
+  // ── DB Cleanup — daily at 04:00 ──────────────────────────────────────────
+  cron.schedule("0 4 * * *", () => {
+    try {
+      const db = openDb();
+      const { runCleanup } = require("./db-cleanup");
+      const result = runCleanup(db);
+      db.close();
+      if (result.space_freed_mb > 0) {
+        emitEvent("station_status", "info", `DB cleanup: ${result.space_freed_mb}MB freed`, `Deleted ${result.status_log_deleted + result.sessions_deleted} old rows`, result);
+      }
+    } catch (err) {
+      console.error("[CLEANUP] Failed:", err);
+    }
+  });
+
   // ── ML Model Retrain — daily at 03:00 ──────────────────────────────────
   cron.schedule("0 3 * * *", () => {
     try {
@@ -465,6 +480,12 @@ export function startAutoSync() {
       console.error("[STARTUP] Initial sync failed:", err);
     }
   }, 10000);
+
+  // ── Initialize Alert System ──────────────────────────────────────────────
+  try {
+    const { initAlerts } = require("./alerts");
+    initAlerts();
+  } catch {}
 
   console.log("[INTEGRITY-ENGINE] All cron jobs registered.");
 }
