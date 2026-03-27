@@ -119,6 +119,24 @@ export function startAutoSync() {
     }
   });
 
+  // ── Predictive Failover — every 15 minutes at :04 ─────────────────────────
+  cron.schedule("4-59/15 * * * *", () => {
+    try {
+      const db = openDb();
+      const { runPredictiveFailover } = require("./agents/predictive-failover");
+      const result = runPredictiveFailover(db, dataDir);
+      db.close();
+      if (result.stations_at_risk > 0) {
+        console.log(`[PREDICTIVE] ${result.stations_at_risk} stations at risk, ${result.stations_improving} improving${result.kp_forecast.pre_route_needed ? " | Kp pre-route needed" : ""}`);
+        if (result.alerts.some((a: any) => a.trend === "critical")) {
+          emitEvent("anomaly", "warning", `${result.stations_at_risk} stations degrading`, `Predictive failover detected ${result.stations_at_risk} at-risk stations`, result);
+        }
+      }
+    } catch (err) {
+      console.error("[PREDICTIVE] Failed:", err);
+    }
+  });
+
   // ── SHIELD — every 5 minutes at :02 (staggered to avoid race condition) ───
   cron.schedule("2-57/5 * * * *", () => {
     try {
