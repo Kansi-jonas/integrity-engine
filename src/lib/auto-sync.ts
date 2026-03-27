@@ -337,6 +337,19 @@ export function startAutoSync() {
         } else {
           console.log(`[ZONE-CONFIG] ${Object.keys(wizardZones).length} wizard zones (no changes)`);
         }
+        // Coverage Optimizer: analyze quality cells and recommend improvements
+        try {
+          const { analyzeCoverageAndOptimize } = require("./agents/coverage-optimizer");
+          const coverage = analyzeCoverageAndOptimize(db, dataDir);
+          console.log(`[COVERAGE-OPT] ${coverage.green_percentage}% green (${coverage.green_cells}/${coverage.total_cells}) — ${coverage.improvement_actions.length} actions recommended`);
+          if (coverage.trend.green_pct_7d_ago !== null) {
+            const delta = coverage.trend.green_pct_now - coverage.trend.green_pct_7d_ago;
+            console.log(`[COVERAGE-OPT] 7d trend: ${delta > 0 ? "+" : ""}${delta.toFixed(1)}pp ${coverage.trend.improving ? "↑ improving" : "→ stable/declining"}`);
+          }
+        } catch (err) {
+          console.error("[COVERAGE-OPT] Failed:", err);
+        }
+
         // ONOCOY Gap-Fill: find gaps and create ONOCOY zones
         try {
           const { runOnocoyGapFill } = require("./agents/onocoy-gapfill");
