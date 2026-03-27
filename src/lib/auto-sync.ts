@@ -320,11 +320,11 @@ export function startAutoSync() {
         console.error("[CONFIG-GEN] Failed:", err);
       }
 
-      // Step 6b: Build zones from H3 quality cells
+      // Step 6b: Build zones V2 (Global GEODNET + ONOCOY overlays)
       try {
-        const { buildZonesFromQuality } = require("./zone-builder");
-        const zoneResult = buildZonesFromQuality(db, dataDir);
-        console.log(`[ZONE-BUILDER] ${zoneResult.stats.zones_created} zones (${zoneResult.stats.full_rtk_zones} full RTK, ${zoneResult.stats.degraded_zones} degraded) — ${zoneResult.stats.coverage_area_km2} km² coverage`);
+        const { buildZonesV2 } = require("./zone-builder-v2");
+        const zoneResult = buildZonesV2(db, dataDir);
+        console.log(`[ZONE-V2] 1 Global GEODNET + ${zoneResult.stats.total_overlays} ONOCOY overlays (${zoneResult.stats.onocoy_primary} primary, ${zoneResult.stats.onocoy_failover} failover, ${zoneResult.stats.onocoy_confirmed} confirmed) — ~${zoneResult.stats.estimated_config_lines} config lines`);
 
         // Convert to Wizard format for Config Engine
         const { convertZonesToWizard, summarizeZoneChanges } = require("./zone-to-config");
