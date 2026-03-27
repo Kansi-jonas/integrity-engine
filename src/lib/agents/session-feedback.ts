@@ -183,5 +183,26 @@ export function runSessionFeedback(db: Database.Database, dataDir: string): Feed
     fs.renameSync(tmp, filePath);
   } catch {}
 
+  // ── ONOCOY Validation Loop ──────────────────────────────────────────────
+  // When sessions use ONOCOY stations, update validation state
+  try {
+    const { updateOnocoyValidation } = require("./onocoy-gapfill");
+
+    // Find all ONOCOY stations that had sessions
+    const onocoyStations = new Map<string, { fixRates: number[]; count: number }>();
+
+    for (const [stName, sessions] of sessionsByStation) {
+      // Check if station is ONOCOY
+      try {
+        const stRow = db.prepare(`SELECT network FROM stations WHERE name = ?`).get(stName) as any;
+        if (stRow?.network === "onocoy") {
+          const fixRates = sessions.map((s: any) => s.fix_rate || 0);
+          const meanFix = fixRates.reduce((a: number, b: number) => a + b, 0) / fixRates.length;
+          updateOnocoyValidation(stName, meanFix, fixRates.length, dataDir);
+        }
+      } catch {}
+    }
+  } catch {}
+
   return report;
 }
