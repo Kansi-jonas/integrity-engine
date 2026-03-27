@@ -111,7 +111,11 @@ export function thompsonSamplePriorities(
     const sample = sampleBeta(alpha, beta);
 
     // Blend: mostly Thompson but with some deterministic stability
-    const blendedScore = explorationWeight * sample + (1 - explorationWeight) * deterministicScore;
+    // Safety clamp: Thompson sample can never exceed deterministic + 0.15
+    // This prevents a station with no data from getting a lucky sample
+    // and becoming primary for all users in a zone for 4 hours
+    const clampedSample = Math.min(sample, deterministicScore + 0.15);
+    const blendedScore = explorationWeight * clampedSample + (1 - explorationWeight) * deterministicScore;
 
     results.push({
       name,

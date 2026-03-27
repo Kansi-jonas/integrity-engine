@@ -151,9 +151,11 @@ export function generateQualifiedConfig(db: Database.Database, dataDir: string):
     } else if (GATES.EXCLUDE_CRITICAL_SHIELD && criticalStations.has(s.name)) {
       dq = true;
       dqReason = "Active critical SHIELD event (interference/jamming)";
-    } else if (s.session_count < GATES.MIN_SESSIONS && flag === "new") {
+    } else if (s.session_count < GATES.MIN_SESSIONS && flag === "new" && s.uq_score < 0.5) {
+      // Only block new stations if they also have low UQ score
+      // This prevents chicken-and-egg: station can't get sessions without being in config
       dq = true;
-      dqReason = `Insufficient data (${s.session_count} sessions < ${GATES.MIN_SESSIONS})`;
+      dqReason = `New station with low quality (${s.session_count} sessions, UQ ${s.uq_score.toFixed(2)})`;
     }
 
     // Quality tier

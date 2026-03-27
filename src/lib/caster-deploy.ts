@@ -102,8 +102,14 @@ export async function deployConfig(config: string, dataDir: string): Promise<Dep
     };
   }
 
-  // Save rollback
-  saveRollback(config, dataDir);
+  // Save rollback of CURRENT config (not the new one being deployed)
+  try {
+    const currentConfigPath = path.join(dataDir, "ntrips.cfg");
+    if (fs.existsSync(currentConfigPath)) {
+      const currentConfig = fs.readFileSync(currentConfigPath, "utf-8");
+      saveRollback(currentConfig, dataDir);
+    }
+  } catch {}
 
   if (instances.length === 0) {
     console.log("[DEPLOY] No caster instances configured — config saved locally only");
