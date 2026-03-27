@@ -126,8 +126,9 @@ export function generateQualifiedConfig(db: Database.Database, dataDir: string):
 
   for (const s of stations) {
     const trust = trustMap.get(s.name);
-    const compositeScore = trust?.composite_score ?? trust?.combined_score ?? 0;
-    const trustScore = trust?.trust_score ?? 0;
+    // New stations default to 0.6 (neutral) — prevents chicken-and-egg permanent exclusion
+    const compositeScore = trust?.composite_score ?? trust?.combined_score ?? 0.6;
+    const trustScore = trust?.trust_score ?? 0.5;
     const flag = trust?.flag ?? "new";
     const consistency = trust?.consistency_weight ?? trust?.consistency ?? 0.5;
 

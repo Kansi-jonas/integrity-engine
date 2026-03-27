@@ -11,8 +11,11 @@ function emitEvent(type: IntegrityEvent["type"], severity: IntegrityEvent["sever
   eventBus.emit("integrity", { type, severity, title, detail, data, timestamp: new Date().toISOString() });
 }
 
+import crypto from "crypto";
+
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "data", "integrity.db");
 let initialized = false;
+let pipelineRunning = false; // Mutex: prevent overlapping 4h pipeline runs
 
 function getDataDir() {
   return path.dirname(DB_PATH);
@@ -22,6 +25,7 @@ function openDb(): Database.Database {
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
+  db.pragma("busy_timeout = 5000"); // Wait up to 5s for locks instead of failing
   return db;
 }
 
@@ -194,6 +198,11 @@ export function startAutoSync() {
   // ── Quality Pipeline — every 4 hours (:30) ───────────────────────────────
   // TRUST + Signal Integrity + Fence Generator + Zone Integrity
   cron.schedule("30 */4 * * *", async () => {
+    if (pipelineRunning) {
+      console.log("[QUALITY-PIPELINE] Skipped — previous run still in progress");
+      return;
+    }
+    pipelineRunning = true;
     try {
       console.log("[QUALITY-PIPELINE] Starting...");
       const startTime = Date.now();
@@ -400,6 +409,8 @@ export function startAutoSync() {
       console.log(`[QUALITY-PIPELINE] Complete in ${Math.round((Date.now() - startTime) / 1000)}s`);
     } catch (err) {
       console.error("[QUALITY-PIPELINE] Failed:", err);
+    } finally {
+      pipelineRunning = false;
     }
   });
 
