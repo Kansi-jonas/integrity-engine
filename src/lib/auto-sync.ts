@@ -199,6 +199,31 @@ export function startAutoSync() {
     }
   });
 
+  // ── Daily Report — 06:00 UTC ─────────────────────────────────────────────
+  cron.schedule("0 6 * * *", async () => {
+    try {
+      const db = openDb();
+      const { generateDailyReport, formatSlackReport } = require("./daily-report");
+      const report = generateDailyReport(db, dataDir);
+      db.close();
+      console.log(`[DAILY-REPORT] Health: ${report.health.score}/100 | Sessions: ${report.sessions.total_24h} | Fix: ${report.sessions.avg_fix}% | Green: ${report.coverage.green_pct}%`);
+
+      // Send to Slack if configured
+      const slackUrl = process.env.SLACK_WEBHOOK_URL;
+      if (slackUrl) {
+        try {
+          await fetch(slackUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: formatSlackReport(report), username: "RTKdata Integrity Engine", icon_emoji: ":satellite:" }),
+          });
+        } catch {}
+      }
+    } catch (err) {
+      console.error("[DAILY-REPORT] Failed:", err);
+    }
+  });
+
   // ── DB Cleanup — daily at 04:00 ──────────────────────────────────────────
   cron.schedule("0 4 * * *", () => {
     try {
