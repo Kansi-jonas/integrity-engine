@@ -311,11 +311,23 @@ export function startAutoSync() {
         console.error("[CONFIG-GEN] Failed:", err);
       }
 
-      // Step 6b: Build zones from H3 quality cells (replaces old zone generator)
+      // Step 6b: Build zones from H3 quality cells
       try {
         const { buildZonesFromQuality } = require("./zone-builder");
         const zoneResult = buildZonesFromQuality(db, dataDir);
         console.log(`[ZONE-BUILDER] ${zoneResult.stats.zones_created} zones (${zoneResult.stats.full_rtk_zones} full RTK, ${zoneResult.stats.degraded_zones} degraded) — ${zoneResult.stats.coverage_area_km2} km² coverage`);
+
+        // Convert to Wizard format for Config Engine
+        const { convertZonesToWizard, summarizeZoneChanges } = require("./zone-to-config");
+        const wizardZones = convertZonesToWizard(zoneResult, dataDir);
+        const changes = summarizeZoneChanges(zoneResult, dataDir);
+        const changeCount = changes.added.length + changes.removed.length + changes.updated.length;
+        if (changeCount > 0) {
+          console.log(`[ZONE-CONFIG] ${Object.keys(wizardZones).length} wizard zones — ${changes.added.length} added, ${changes.removed.length} removed, ${changes.updated.length} updated`);
+          emitEvent("zone_update", "info", `${changeCount} zone changes`, `Added: ${changes.added.length}, Removed: ${changes.removed.length}, Updated: ${changes.updated.length}`, changes);
+        } else {
+          console.log(`[ZONE-CONFIG] ${Object.keys(wizardZones).length} wizard zones (no changes)`);
+        }
       } catch (err) {
         console.error("[ZONE-BUILDER] Failed:", err);
       }
