@@ -94,13 +94,21 @@ export interface ThompsonStation {
  * @param trustState Map of station → {alpha, beta}
  * @param explorationWeight 1.0 = full Thompson Sampling, 0.0 = deterministic
  */
+/**
+ * @param trustState Beta distribution parameters per station
+ * @param explorationWeight Blend ratio (0.7 recommended after PhD review — pure 0.8 was too aggressive)
+ * @param excludedStations Stations flagged as "excluded" by TRUST V2 — NEVER route to these
+ */
 export function thompsonSamplePriorities(
   trustState: Record<string, { alpha: number; beta: number }>,
-  explorationWeight = 0.8 // 80% Thompson, 20% deterministic blend
+  explorationWeight = 0.7, // Reduced from 0.8 per PhD optimization review
+  excludedStations?: Set<string>
 ): ThompsonStation[] {
   const results: ThompsonStation[] = [];
 
   for (const [name, state] of Object.entries(trustState)) {
+    // SAFETY: Never route to excluded stations regardless of Thompson sample
+    if (excludedStations?.has(name)) continue;
     const alpha = state.alpha || 1;
     const beta = state.beta || 1;
 

@@ -139,10 +139,23 @@ export function computeLogFeedback(
  * - Station with low stability_score (short sessions, many failovers) → increase beta
  * - Weight by session count (more data = stronger signal)
  */
+/**
+ * Update Trust scores based on log feedback.
+ * IMPORTANT: This updates trust-state.json which is the SAME file that trust-v2 reads.
+ * To prevent double-counting, log feedback uses a LOWER weight (0.3) than session feedback (0.5).
+ * Circuit breaker: if >50% of stations would be penalized, something is wrong — skip update.
+ */
 export function updateTrustFromLogs(
   performances: StationPerformance[],
   dataDir: string
 ) {
+  // Circuit breaker: if majority of stations have low stability, it's probably
+  // a systemic issue (iono storm, network problem) not individual station problems
+  const lowStabilityCount = performances.filter(p => p.stability_score < 0.3).length;
+  if (performances.length > 10 && lowStabilityCount / performances.length > 0.5) {
+    console.warn(`[LOG-FEEDBACK] Circuit breaker: ${lowStabilityCount}/${performances.length} stations have low stability — skipping trust update (likely systemic issue)`);
+    return;
+  }
   const trustPath = path.join(dataDir, "trust-state.json");
   let trustState: Record<string, { alpha: number; beta: number; last_decay: number }> = {};
 
@@ -160,8 +173,9 @@ export function updateTrustFromLogs(
 
     // Stability > 0.7 = "success" sessions → increase alpha
     // Stability < 0.3 = "failure" sessions → increase beta
-    // Scale by log10(sessions) to prevent single-day floods from dominating
-    const weight = Math.log10(Math.max(1, perf.total_sessions)) * 0.5;
+    // Scale by log10(sessions) with lower weight (0.3) to prevent double-counting
+    // with trust-v2 session feedback which uses weight 0.5
+    const weight = Math.log10(Math.max(1, perf.total_sessions)) * 0.3;
 
     if (perf.stability_score > 0.7) {
       existing.alpha += weight;

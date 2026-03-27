@@ -99,9 +99,18 @@ export async function POST(req: NextRequest) {
         try {
           const { logThompsonDecisions, thompsonSamplePriorities } = require("@/lib/thompson-sampling");
           const trustPath = require("path").join(dataDir, "trust-state.json");
+          const trustScoresPath = require("path").join(dataDir, "trust-scores.json");
           if (require("fs").existsSync(trustPath)) {
             const trustData = JSON.parse(require("fs").readFileSync(trustPath, "utf-8"));
-            const samples = thompsonSamplePriorities(trustData.stations || {});
+            // Load excluded stations from TRUST V2 — NEVER route to these
+            let excludedSet: Set<string> | undefined;
+            try {
+              if (require("fs").existsSync(trustScoresPath)) {
+                const scores = JSON.parse(require("fs").readFileSync(trustScoresPath, "utf-8"));
+                excludedSet = new Set((scores.scores || []).filter((s: any) => s.flag === "excluded").map((s: any) => s.station));
+              }
+            } catch {}
+            const samples = thompsonSamplePriorities(trustData.stations || {}, 0.7, excludedSet);
             logThompsonDecisions(samples, dataDir);
           }
         } catch (e) {
