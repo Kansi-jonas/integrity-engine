@@ -497,6 +497,27 @@ export function startAutoSync() {
     } catch (err) {
       console.error("[STARTUP] Initial sync failed:", err);
     }
+
+    // Auto-start ONOCOY probe if stations still need probing (after 2 min delay)
+    setTimeout(async () => {
+      try {
+        const probeDb = openDb();
+        const unprobed = probeDb.prepare(`
+          SELECT COUNT(*) as cnt FROM stations
+          WHERE network = 'onocoy' AND status IN ('ONLINE', 'ACTIVE')
+            AND (receiver_type IS NULL OR receiver_type = '' OR receiver_type LIKE '%INFERRED%')
+        `).get() as any;
+        probeDb.close();
+
+        if (unprobed?.cnt > 100) {
+          console.log(`[STARTUP] ${unprobed.cnt} ONOCOY stations unprobed — starting auto-probe in background`);
+          // Trigger probe via internal fetch
+          try {
+            await fetch(`http://localhost:${process.env.PORT || 10000}/api/probe?action=start`);
+          } catch {}
+        }
+      } catch {}
+    }, 120000); // 2 min after startup
   }, 10000);
 
   // ── Initialize Alert System ──────────────────────────────────────────────
