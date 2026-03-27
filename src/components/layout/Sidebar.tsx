@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import {
-  Shield, Activity, Map, Eye, Radio, Zap, Settings,
+  Shield, Activity, Map, Eye, Radio, Zap, Settings, Hexagon,
   Globe, Layers, Users, Server, Upload, FileCode, CheckCircle,
   ChevronLeft, ChevronDown, Menu, X, BarChart3, AlertTriangle,
   type LucideIcon,
@@ -41,6 +41,7 @@ const sections: NavSectionDef[] = [
     defaultOpen: true,
     items: [
       { href: "/dashboard", label: "Overview", icon: Shield, exact: true },
+      { href: "/dashboard/quality", label: "Coverage Quality", icon: Hexagon },
       { href: "/dashboard/trust", label: "Station Trust", icon: Eye },
       { href: "/dashboard/interference", label: "Interference", icon: AlertTriangle },
       { href: "/dashboard/forecast", label: "Quality Forecast", icon: BarChart3 },
