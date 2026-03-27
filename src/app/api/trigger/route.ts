@@ -10,6 +10,11 @@ import { getDb, getDataDir } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+// Also allow GET for easy browser triggering
+export async function GET(req: NextRequest) {
+  return POST(req);
+}
+
 export async function POST(req: NextRequest) {
   const pipeline = req.nextUrl.searchParams.get("pipeline") || "quality";
 
@@ -32,7 +37,21 @@ export async function POST(req: NextRequest) {
       const excluded = trustScores.filter((t: any) => t.flag === "excluded").length;
       console.log(`[TRIGGER] TRUST V2: ${trustScores.length} scored, ${excluded} excluded`);
 
-      // Step 3: Spatial Quality Surface
+      // Step 3: H3 Quality Cells
+      let h3Count = 0;
+      try {
+        const { computeCellQualities, writeQualityCells } = require("@/lib/h3-quality");
+        const cells = computeCellQualities(db);
+        writeQualityCells(db, cells);
+        h3Count = cells.length;
+        const tiers: Record<string, number> = {};
+        for (const c of cells) tiers[c.zoneTier] = (tiers[c.zoneTier] || 0) + 1;
+        console.log(`[TRIGGER] H3 Quality: ${cells.length} cells — full:${tiers.full_rtk || 0} degraded:${tiers.degraded_rtk || 0} float:${tiers.float_dgps || 0} none:${tiers.no_coverage || 0}`);
+      } catch (e) {
+        console.log(`[TRIGGER] H3 Quality: skipped (${e})`);
+      }
+
+      // Step 3b: Spatial Quality Surface
       try {
         const { computeQualitySurface } = require("@/lib/spatial/quality-surface");
         const surface = computeQualitySurface(db, dataDir);
@@ -68,13 +87,20 @@ export async function POST(req: NextRequest) {
         console.log(`[TRIGGER] Config Generator: skipped (${e})`);
       }
 
-      // Step 7: Zone Generator
+      // Step 7: Zone Builder (H3 → zones → wizard format)
+      let zonesCreated = 0;
       try {
-        const { generateIntegrityZones } = require("@/lib/wizard/zone-generator");
-        const zones = generateIntegrityZones(db, dataDir);
-        console.log(`[TRIGGER] Zone Generator: ${zones.length} zones`);
+        const { buildZonesFromQuality } = require("@/lib/zone-builder");
+        const zoneResult = buildZonesFromQuality(db, dataDir);
+        zonesCreated = zoneResult.stats.zones_created;
+        console.log(`[TRIGGER] Zone Builder: ${zonesCreated} zones (${zoneResult.stats.full_rtk_zones} full RTK, ${zoneResult.stats.degraded_zones} degraded) — ${zoneResult.stats.coverage_area_km2} km²`);
+
+        // Convert to Wizard format
+        const { convertZonesToWizard } = require("@/lib/zone-to-config");
+        const wizardZones = convertZonesToWizard(zoneResult, dataDir);
+        console.log(`[TRIGGER] Zone-to-Config: ${Object.keys(wizardZones).length} wizard zones`);
       } catch (e) {
-        console.log(`[TRIGGER] Zone Generator: skipped (${e})`);
+        console.log(`[TRIGGER] Zone Builder: skipped (${e})`);
       }
 
       // Step 8: Session Feedback
@@ -87,7 +113,7 @@ export async function POST(req: NextRequest) {
       }
 
       console.log("[TRIGGER] Quality pipeline complete.");
-      return NextResponse.json({ status: "ok", pipeline: "quality", stations: stationScores.length, trust: trustScores.length, excluded });
+      return NextResponse.json({ status: "ok", pipeline: "quality", stations: stationScores.length, trust: trustScores.length, excluded, h3_cells: h3Count, zones: zonesCreated });
 
     } else if (pipeline === "ml") {
       console.log("[TRIGGER] Manual ML retrain started...");
