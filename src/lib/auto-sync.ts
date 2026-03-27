@@ -157,6 +157,19 @@ export function startAutoSync() {
     }
   });
 
+  // ── Network Health Score — every hour (:05) ────────────────────────────────
+  cron.schedule("5 * * * *", () => {
+    try {
+      const db = openDb();
+      const { computeNetworkHealth } = require("./network-health");
+      const health = computeNetworkHealth(db, dataDir);
+      db.close();
+      console.log(`[HEALTH] Network Health: ${health.score}/100 (${health.grade}) — Q:${health.components.quality.score} R:${health.components.reliability.score} C:${health.components.coverage.score} F:${health.components.freshness.score} ${health.trend.direction}`);
+    } catch (err) {
+      console.error("[HEALTH] Failed:", err);
+    }
+  });
+
   // ── ENVIRONMENT — every hour (:10) ──────────────────────────────────────────
   // Replaces simple space-weather with comprehensive 9-source environment monitoring
   cron.schedule("10 * * * *", async () => {
