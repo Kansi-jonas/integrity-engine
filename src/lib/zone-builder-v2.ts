@@ -276,9 +276,12 @@ function loadOnocoyWithHardware(db: Database.Database): OnoStation[] {
         if (recv.includes(brand)) { hwClass = "survey_grade"; confidence = 0.95; break; }
       }
       if (hwClass === "unknown") {
-        if (recv.includes("U-BLOX") || recv.includes("UBLOX") || recv.includes("F9P")) {
+        if (recv.includes("SURVEY_GRADE_INFERRED")) { hwClass = "survey_grade"; confidence = 0.75; }
+        else if (recv.includes("PROFESSIONAL_INFERRED")) { hwClass = "professional"; confidence = 0.65; }
+        else if (recv.includes("CONSUMER_GOOD_INFERRED") || recv.includes("U-BLOX") || recv.includes("UBLOX") || recv.includes("F9P")) {
           hwClass = "consumer"; confidence = 0.5;
         }
+        else if (recv.includes("CONSUMER_BASIC_INFERRED")) { hwClass = "consumer"; confidence = 0.3; }
       }
 
       return { name: r.name, latitude: r.latitude, longitude: r.longitude, hardware_class: hwClass, hardware_confidence: confidence };

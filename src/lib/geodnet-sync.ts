@@ -215,20 +215,35 @@ export async function syncOnocoyStations(db: Database.Database): Promise<number>
         const name = parts[1];
         const lat = parseFloat(parts[9]);
         const lon = parseFloat(parts[10]);
+        const formatDetails = parts[4] || "";  // RTCM message types: 1077,1087,1097 etc
+        const carrier = parseInt(parts[5]) || 0; // 0=none, 1=L1, 2=L1+L2, 4+=multi
         const navSystem = parts[6] || "";     // GPS+GLO+GAL+BDS etc
         const country = parts[8] || "";
-        // Generator field often contains receiver info: "Leica GR25" or "Trimble NetR9"
         const generator = parts[13] || "";
-        // For ONOCOY, the identifier often has receiver info too
-        const identifier = parts[2] || "";
 
         if (!name || isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue;
 
-        // Extract receiver and antenna from generator/identifier
-        const receiverType = generator || identifier || "";
-        const antennaType = ""; // Not reliably in sourcetable
+        // Classify hardware quality from RTCM messages + constellations
+        // MSM7 (x077/x087/x097/x127) = high-end; MSM5 = good; MSM4 = standard
+        const hasMSM7 = formatDetails.includes("1077") || formatDetails.includes("1087");
+        const hasMSM5 = formatDetails.includes("1075") || formatDetails.includes("1085");
+        const constellationCount = (navSystem.match(/\+/g) || []).length + (navSystem.length > 0 ? 1 : 0);
 
-        stmt.run(name, lat, lon, 0, "ONLINE", "onocoy", receiverType, antennaType, country, navSystem, now);
+        let receiverType = generator || "";
+        if (!receiverType) {
+          // Infer from RTCM capabilities
+          if (hasMSM7 && constellationCount >= 4 && carrier >= 4) {
+            receiverType = "SURVEY_GRADE_INFERRED"; // MSM7 + 4 constellations + multi-freq
+          } else if (hasMSM7 && constellationCount >= 3) {
+            receiverType = "PROFESSIONAL_INFERRED";
+          } else if (hasMSM5 || (hasMSM7 && constellationCount >= 2)) {
+            receiverType = "CONSUMER_GOOD_INFERRED"; // Like F9P
+          } else {
+            receiverType = "CONSUMER_BASIC_INFERRED";
+          }
+        }
+
+        stmt.run(name, lat, lon, 0, "ONLINE", "onocoy", receiverType, "", country, navSystem, now);
         count++;
       }
     });

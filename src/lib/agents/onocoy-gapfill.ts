@@ -95,6 +95,7 @@ const CONSUMER = [
 function classifyHardware(receiver: string, antenna: string): { class: OnocoyStation["hardware_class"]; confidence: number } {
   const combined = `${receiver} ${antenna}`.toUpperCase();
 
+  // Explicit brand names
   for (const brand of SURVEY_GRADE) {
     if (combined.includes(brand)) return { class: "survey_grade", confidence: 0.95 };
   }
@@ -104,6 +105,12 @@ function classifyHardware(receiver: string, antenna: string): { class: OnocoySta
   for (const brand of CONSUMER) {
     if (combined.includes(brand)) return { class: "consumer", confidence: 0.50 };
   }
+
+  // Inferred from RTCM capabilities (ONOCOY sourcetable has no receiver field)
+  if (combined.includes("SURVEY_GRADE_INFERRED")) return { class: "survey_grade", confidence: 0.75 };
+  if (combined.includes("PROFESSIONAL_INFERRED")) return { class: "professional", confidence: 0.65 };
+  if (combined.includes("CONSUMER_GOOD_INFERRED")) return { class: "consumer", confidence: 0.50 };
+  if (combined.includes("CONSUMER_BASIC_INFERRED")) return { class: "consumer", confidence: 0.30 };
 
   return { class: "unknown", confidence: 0.20 };
 }
