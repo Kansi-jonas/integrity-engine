@@ -84,15 +84,17 @@ function SeverityBadge({ severity }: { severity: string }) {
   return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${c.bg} ${c.text}`}><c.Icon className="h-3 w-3" /> {c.label}</span>;
 }
 
-function KpiCard({ icon: Icon, label, value, sub }: { icon: any; label: string; value: string | number; sub?: string }) {
+function KpiCard({ icon: Icon, label, value, sub, accent }: { icon: any; label: string; value: string | number; sub?: string; accent?: string }) {
   return (
-    <div className="rounded-lg border bg-white p-4">
-      <div className="flex items-center gap-2 mb-1">
-        <Icon className="h-4 w-4 text-gray-400" />
-        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">{label}</span>
+    <div className="rounded-xl border border-[var(--color-border)] bg-white p-4 md:p-5 shadow-[var(--shadow-xs)] transition-shadow hover:shadow-[var(--shadow-sm)]">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">{label}</span>
+        <div className="w-8 h-8 rounded-lg bg-[var(--color-gray-50)] flex items-center justify-center">
+          <Icon className={`h-4 w-4 ${accent || "text-[var(--color-gray-400)]"}`} />
+        </div>
       </div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
-      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+      <div className="text-[22px] font-semibold text-[var(--color-text-primary)] tabular-nums">{value}</div>
+      {sub && <div className="text-[12px] text-[var(--color-text-tertiary)] mt-1">{sub}</div>}
     </div>
   );
 }
@@ -138,16 +140,22 @@ export default function DashboardPage() {
   const criticalCount = signal?.anomalies.filter(a => a.severity === "critical").length || 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen p-4 sm:p-6 lg:p-8">
+      <div className="max-w-[1600px] mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Integrity Engine</h1>
-            <p className="text-sm text-gray-500">Signal Integrity Monitoring + Anomaly Detection</p>
+            <div className="flex items-center gap-3">
+              <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--color-text-primary)]">Integrity Engine</h1>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[var(--color-success-muted)] text-[var(--color-success)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
+                Live
+              </span>
+            </div>
+            <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">Signal Integrity Monitoring + Anomaly Detection</p>
           </div>
-          <button onClick={fetchAll} disabled={loading} className="p-2 rounded-lg hover:bg-white border transition">
-            <RefreshCw className={`h-4 w-4 text-gray-500 ${loading ? "animate-spin" : ""}`} />
+          <button onClick={fetchAll} disabled={loading} className="p-2 rounded-lg hover:bg-white border border-[var(--color-border)] transition shadow-[var(--shadow-xs)]">
+            <RefreshCw className={`h-4 w-4 text-[var(--color-text-secondary)] ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
 

@@ -84,6 +84,49 @@ function initSchema(db: Database.Database) {
       computed_at INTEGER
     );
 
+    -- H3 Quality Cells (MERIDIAN coverage quality engine)
+    CREATE TABLE IF NOT EXISTS quality_cells (
+      h3_index TEXT PRIMARY KEY,
+      resolution INTEGER DEFAULT 5,
+      quality_score REAL,
+      fix_component REAL,
+      age_component REAL,
+      density_component REAL,
+      uptime_component REAL,
+      baseline_component REAL,
+      session_count INTEGER DEFAULT 0,
+      unique_users INTEGER DEFAULT 0,
+      confidence REAL DEFAULT 0,
+      is_interpolated INTEGER DEFAULT 0,
+      zone_tier TEXT,
+      best_network TEXT,
+      nearest_station TEXT,
+      nearest_station_km REAL,
+      computed_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_qc_tier ON quality_cells(zone_tier);
+    CREATE INDEX IF NOT EXISTS idx_qc_quality ON quality_cells(quality_score);
+
+    -- Zone definitions (generated from quality cells)
+    CREATE TABLE IF NOT EXISTS zone_definitions (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      zone_tier TEXT,
+      network TEXT,
+      priority INTEGER,
+      geofence_type TEXT,
+      geofence_json TEXT,
+      cell_count INTEGER,
+      avg_quality REAL,
+      min_quality REAL,
+      area_km2 REAL,
+      station_count INTEGER,
+      enabled INTEGER DEFAULT 1,
+      manual_override INTEGER DEFAULT 0,
+      computed_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_zd_tier ON zone_definitions(zone_tier);
+
     -- Sync log
     CREATE TABLE IF NOT EXISTS sync_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

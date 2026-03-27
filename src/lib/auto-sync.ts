@@ -236,6 +236,18 @@ export function startAutoSync() {
         console.error("[TRUST-V2] Failed:", err);
       }
 
+      // Step 3a: H3 Quality Cells (MERIDIAN physics-based coverage quality)
+      try {
+        const { computeCellQualities, writeQualityCells } = require("./h3-quality");
+        const cells = computeCellQualities(db);
+        writeQualityCells(db, cells);
+        const tiers: Record<string, number> = {};
+        for (const c of cells) tiers[c.zoneTier] = (tiers[c.zoneTier] || 0) + 1;
+        console.log(`[H3-QUALITY] ${cells.length} cells — full:${tiers.full_rtk || 0} degraded:${tiers.degraded_rtk || 0} float:${tiers.float_dgps || 0} none:${tiers.no_coverage || 0}`);
+      } catch (err) {
+        console.error("[H3-QUALITY] Failed:", err);
+      }
+
       // Step 3b: Spatial Quality Surface (Kriging + Moran's I)
       try {
         const { computeQualitySurface } = require("./spatial/quality-surface");
