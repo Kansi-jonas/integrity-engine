@@ -175,6 +175,26 @@ export function generateQualifiedConfig(db: Database.Database, dataDir: string):
     }
     cascadePriority = Math.min(99, Math.max(1, cascadePriority));
 
+    // Predictive Failover adjustment: if station is flagged as degrading,
+    // increase priority number (= lower priority in Alberding)
+    try {
+      const predictivePath = require("path").join(dataDir, "predictive-failover.json");
+      if (require("fs").existsSync(predictivePath)) {
+        const pf = JSON.parse(require("fs").readFileSync(predictivePath, "utf-8"));
+        const alert = (pf.alerts || []).find((a: any) => a.station === s.name);
+        if (alert) {
+          if (alert.recommended_action === "pre_exclude") {
+            dq = true;
+            dqReason = `Predictive failover: ${alert.description}`;
+          } else if (alert.recommended_action === "pre_downgrade") {
+            cascadePriority = Math.min(99, cascadePriority + 20);
+          } else if (alert.recommended_action === "pre_promote" && cascadePriority > 10) {
+            cascadePriority = Math.max(1, cascadePriority - 10);
+          }
+        }
+      }
+    } catch {}
+
     const entry: QualifiedStation = {
       name: s.name,
       network: s.network,
