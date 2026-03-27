@@ -4,8 +4,8 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import {
-  Shield, Activity, Map, Eye, Radio, Zap, Settings, Hexagon,
-  Globe, Layers, Users, Server, Upload, FileCode, CheckCircle,
+  Shield, Activity, Map, Eye, Radio, Zap, Settings, Hexagon, Server,
+  Globe, Layers, Users, Upload, FileCode, CheckCircle,
   ChevronLeft, ChevronDown, Menu, X, BarChart3, AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
@@ -71,6 +71,7 @@ const sections: NavSectionDef[] = [
     label: "System",
     defaultOpen: false,
     items: [
+      { href: "/dashboard/system", label: "System Status", icon: Server },
       { href: "/dashboard/wizard/quality-scans", label: "Quality Scans", icon: Zap },
     ],
   },
