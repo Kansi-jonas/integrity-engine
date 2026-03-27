@@ -58,30 +58,39 @@ export function runAdversarialDetector(db: Database.Database, dataDir: string): 
     `).all() as any[];
   } catch { return emptyReport(); }
 
-  // ── 1. Clone Detection ──────────────────────────────────────────────────
-  // Stations with suspiciously similar positions (<50m apart) = possible clones
-  for (let i = 0; i < stations.length; i++) {
-    for (let j = i + 1; j < stations.length; j++) {
-      const dist = haversineKm(
-        stations[i].latitude, stations[i].longitude,
-        stations[j].latitude, stations[j].longitude
-      );
+  // ── 1. Clone Detection (spatial grid for O(n) instead of O(n²)) ────────
+  // Group stations into fine grid cells (~100m) then only compare within same cell
+  const cloneGrid = new Map<string, typeof stations>();
+  for (const s of stations) {
+    // Grid key at ~100m resolution (0.001° ≈ 111m)
+    const key = `${Math.round(s.latitude * 1000)}:${Math.round(s.longitude * 1000)}`;
+    if (!cloneGrid.has(key)) cloneGrid.set(key, []);
+    cloneGrid.get(key)!.push(s);
+  }
 
-      if (dist < 0.05) { // <50 meters
-        // Check if same network (cross-network colocation is normal)
-        if (stations[i].network === stations[j].network) {
+  for (const [, cellStations] of cloneGrid) {
+    if (cellStations.length < 2) continue;
+    // Only compare within same grid cell (max ~10 stations per cell)
+    for (let i = 0; i < cellStations.length; i++) {
+      for (let j = i + 1; j < cellStations.length; j++) {
+        const dist = haversineKm(
+          cellStations[i].latitude, cellStations[i].longitude,
+          cellStations[j].latitude, cellStations[j].longitude
+        );
+
+        if (dist < 0.05 && cellStations[i].network === cellStations[j].network) {
           cloneClusters.push({
-            stations: [stations[i].name, stations[j].name],
+            stations: [cellStations[i].name, cellStations[j].name],
             similarity: Math.round((1 - dist / 0.05) * 100) / 100,
-            evidence: `${Math.round(dist * 1000)}m apart on same network (${stations[i].network})`,
+            evidence: `${Math.round(dist * 1000)}m apart on same network (${cellStations[i].network})`,
           });
 
           suspicious.push({
-            station: stations[j].name, // Flag the newer one
-            network: stations[j].network,
+            station: cellStations[j].name,
+            network: cellStations[j].network,
             type: "clone",
             confidence: dist < 0.01 ? 0.95 : 0.7,
-            evidence: `Only ${Math.round(dist * 1000)}m from ${stations[i].name} on same network`,
+            evidence: `Only ${Math.round(dist * 1000)}m from ${cellStations[i].name} on same network`,
             recommendation: dist < 0.01 ? "exclude" : "downgrade",
           });
         }
