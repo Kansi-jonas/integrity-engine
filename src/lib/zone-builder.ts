@@ -58,6 +58,7 @@ export interface ZoneBuildResult {
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const MIN_CELLS_PER_ZONE = 3;          // Minimum H3 cells to form a zone
+const MAX_ZONES = 450;                  // Hard limit: Alberding performance degrades above ~500
 const MAX_POLYGON_POINTS = 40;          // Alberding limit for polygon vertices
 const ZONE_BUFFER_KM = 5;              // Buffer around zone boundary
 const STATION_ASSIGNMENT_RADIUS = 50;   // km, max distance to assign station to zone
@@ -166,6 +167,22 @@ export function buildZonesFromQuality(db: Database.Database, dataDir: string): Z
 
   // Sort by priority
   zones.sort((a, b) => a.priority - b.priority);
+
+  // ── Zone Limit Enforcement ──────────────────────────────────────────────
+  // Alberding performance degrades above ~500 zones.
+  // If over MAX_ZONES: drop lowest-quality zones (keep the best ones)
+  if (zones.length > MAX_ZONES) {
+    console.log(`[ZONE-BUILDER] ${zones.length} zones exceeds limit of ${MAX_ZONES} — trimming lowest quality`);
+    // Sort by quality descending, keep top MAX_ZONES
+    const sorted = [...zones].sort((a, b) => b.avg_quality - a.avg_quality);
+    const kept = sorted.slice(0, MAX_ZONES);
+    const dropped = sorted.slice(MAX_ZONES);
+    console.log(`[ZONE-BUILDER] Kept ${kept.length} zones (min quality ${kept[kept.length - 1]?.avg_quality}), dropped ${dropped.length}`);
+    zones.length = 0;
+    zones.push(...kept);
+    // Re-sort by priority
+    zones.sort((a, b) => a.priority - b.priority);
+  }
 
   const result: ZoneBuildResult = {
     zones,
