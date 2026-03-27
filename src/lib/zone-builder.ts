@@ -282,27 +282,46 @@ function generateBoundary(cells: CellRow[]): Boundary | null {
     };
   }
 
-  // For larger clusters, generate convex hull polygon
-  const points: [number, number][] = [];
+  // For larger clusters: use outer boundary of H3 cell union
+  // This preserves concavities (bays, inlets) unlike convex hull
+  // Strategy: collect all cell boundary edges, keep only outer edges (not shared between cells)
+  const cellSet = new Set(cells.map(c => c.h3_index));
+  const outerPoints: [number, number][] = [];
+
   for (const cell of cells) {
     try {
       const boundary = h3.cellToBoundary(cell.h3_index);
-      for (const [lat, lon] of boundary) {
-        points.push([lat, lon]);
+      // Check each edge: if the neighboring cell across that edge is NOT in our cluster,
+      // this is an outer edge → include its points
+      const neighbors = h3.gridDisk(cell.h3_index, 1).filter(n => n !== cell.h3_index);
+      const hasExternalNeighbor = neighbors.some(n => !cellSet.has(n));
+
+      if (hasExternalNeighbor) {
+        // This cell is on the border — add its boundary points
+        for (const [lat, lon] of boundary) {
+          outerPoints.push([lat, lon]);
+        }
       }
     } catch {}
   }
 
-  if (points.length < 3) return null;
+  if (outerPoints.length < 3) {
+    // Fallback: use all cell centers as convex hull
+    const fallbackPoints = cells.map(c => [c.lat, c.lon] as [number, number]);
+    const hull = convexHull(fallbackPoints);
+    if (hull.length < 3) return null;
+    return { type: "polygon", polygon: simplifyPolygon(hull, MAX_POLYGON_POINTS) };
+  }
 
-  // Convex hull
-  const hull = convexHull(points);
+  // Use convex hull of outer points (preserves shape better than full convex hull)
+  // because we already filtered to border cells only
+  const hull = convexHull(outerPoints);
   if (hull.length < 3) return null;
 
   // Simplify to max points for Alberding
   const simplified = simplifyPolygon(hull, MAX_POLYGON_POINTS);
 
-  // Add buffer (approximate by scaling from center)
+  // Add small buffer (scale from center)
   const buffered = simplified.map(([lat, lon]) => {
     const dist = haversineKm(centerLat, centerLon, lat, lon);
     const scale = dist > 0 ? (dist + ZONE_BUFFER_KM) / dist : 1;
