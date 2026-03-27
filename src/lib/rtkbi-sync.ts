@@ -56,7 +56,7 @@ export async function syncFromRtkbi(db: Database.Database, dataDir: string): Pro
   // Load sync state
   const statePath = path.join(dataDir, "rtkbi-sync-state.json");
   let state: SyncState = {
-    last_synced_timestamp: Date.now() - 180 * 86400000, // Default: 6 months ago
+    last_synced_timestamp: 0, // Default: all time (fetch everything)
     total_imported: 0,
     last_run: "",
   };
@@ -78,7 +78,16 @@ export async function syncFromRtkbi(db: Database.Database, dataDir: string): Pro
   const pageSize = 10000;
   const now = Date.now();
 
-  console.log(`[RTKBI-SYNC] Starting from ${new Date(state.last_synced_timestamp).toISOString()}`);
+  // If we have less than 1M sessions, reset to fetch everything (full backfill)
+  try {
+    const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM rtk_sessions`).get() as any;
+    if ((countRow?.cnt || 0) < 1000000 && state.last_synced_timestamp > 0) {
+      console.log(`[RTKBI-SYNC] Only ${countRow?.cnt || 0} sessions in DB, resetting to full backfill`);
+      state.last_synced_timestamp = 0;
+    }
+  } catch {}
+
+  console.log(`[RTKBI-SYNC] Starting from ${state.last_synced_timestamp === 0 ? "beginning (full backfill)" : new Date(state.last_synced_timestamp).toISOString()}`);
 
   while (true) {
     try {
@@ -113,8 +122,8 @@ export async function syncFromRtkbi(db: Database.Database, dataDir: string): Pro
 
       if (!data.has_more) break;
 
-      // Safety: max 100 pages per sync run (1M sessions)
-      if (offset >= pageSize * 100) {
+      // Safety: max 1000 pages per sync run (10M sessions — enough for full backfill)
+      if (offset >= pageSize * 1000) {
         console.log("[RTKBI-SYNC] Reached page limit, will continue next cycle");
         break;
       }
