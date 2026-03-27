@@ -14,11 +14,32 @@ export const dynamic = "force-dynamic";
 let probing = false;
 let probeProgress = { total: 0, done: 0, found_survey: 0, running: false, started_at: "" };
 
+// Load persistent progress from disk
+function loadProgress(dataDir: string) {
+  try {
+    const fp = path.join(dataDir, "probe-progress.json");
+    if (fs.existsSync(fp)) {
+      const saved = JSON.parse(fs.readFileSync(fp, "utf-8"));
+      probeProgress = { ...probeProgress, ...saved, running: false };
+    }
+  } catch {}
+}
+function saveProgress(dataDir: string) {
+  try {
+    const fp = path.join(dataDir, "probe-progress.json");
+    fs.writeFileSync(fp + ".tmp", JSON.stringify(probeProgress, null, 2));
+    fs.renameSync(fp + ".tmp", fp);
+  } catch {}
+}
+
 export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action") || "status";
   const station = req.nextUrl.searchParams.get("station");
   const db = getDb();
   const dataDir = getDataDir();
+
+  // Load persistent progress
+  loadProgress(dataDir);
 
   if (action === "status") {
     // Count probed vs unprobed
@@ -133,9 +154,10 @@ async function runDiscoveryScan(db: ReturnType<typeof getDb>, dataDir: string) {
       }
     }
 
-    // Log progress every 50 stations
+    // Log + save progress every 50 stations
     if (probeProgress.done % 50 === 0) {
       console.log(`[PROBE] Progress: ${probeProgress.done}/${probeProgress.total} (${probeProgress.found_survey} survey-grade found)`);
+      saveProgress(dataDir);
     }
 
     // Delay between batches
