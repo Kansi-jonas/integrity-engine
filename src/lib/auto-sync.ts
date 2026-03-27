@@ -328,6 +328,17 @@ export function startAutoSync() {
         } else {
           console.log(`[ZONE-CONFIG] ${Object.keys(wizardZones).length} wizard zones (no changes)`);
         }
+        // ONOCOY Gap-Fill: find gaps and create ONOCOY zones
+        try {
+          const { runOnocoyGapFill } = require("./agents/onocoy-gapfill");
+          const gapFill = runOnocoyGapFill(db, dataDir);
+          if (gapFill.stats.zones_created > 0) {
+            console.log(`[ONOCOY-GAPFILL] ${gapFill.stats.total_gaps} gaps found, ${gapFill.stats.zones_created} zones created (${gapFill.stats.onocoy_survey_grade} survey-grade, ${gapFill.stats.onocoy_consumer} consumer)`);
+            emitEvent("zone_update", "info", `${gapFill.stats.zones_created} ONOCOY gap-fill zones`, `Survey-grade: ${gapFill.stats.onocoy_survey_grade}, Gaps: ${gapFill.stats.total_gaps}`, gapFill.stats);
+          }
+        } catch (err) {
+          console.error("[ONOCOY-GAPFILL] Failed:", err);
+        }
       } catch (err) {
         console.error("[ZONE-BUILDER] Failed:", err);
       }
