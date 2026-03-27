@@ -154,14 +154,20 @@ export async function syncStations(db: Database.Database): Promise<number> {
 // Sourcetable format: STR;mountpoint;...;lat;lon;...
 
 export async function syncOnocoyStations(db: Database.Database): Promise<number> {
-  // Ensure table exists
+  // Ensure table has receiver/antenna columns
   db.exec(`
     CREATE TABLE IF NOT EXISTS stations (
       name TEXT PRIMARY KEY, latitude REAL, longitude REAL, height REAL,
       status TEXT DEFAULT 'UNKNOWN', network TEXT DEFAULT 'unknown',
+      receiver_type TEXT, antenna_type TEXT, country TEXT, nav_system TEXT,
       last_synced INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
     );
   `);
+  // Add columns if they don't exist (safe for existing tables)
+  try { db.exec(`ALTER TABLE stations ADD COLUMN receiver_type TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE stations ADD COLUMN antenna_type TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE stations ADD COLUMN country TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE stations ADD COLUMN nav_system TEXT`); } catch {}
 
   try {
     const controller = new AbortController();
@@ -186,30 +192,43 @@ export async function syncOnocoyStations(db: Database.Database): Promise<number>
 
     const now = Date.now();
     const stmt = db.prepare(`
-      INSERT INTO stations (name, latitude, longitude, height, status, network, last_synced)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO stations (name, latitude, longitude, height, status, network, receiver_type, antenna_type, country, nav_system, last_synced)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
         latitude = excluded.latitude, longitude = excluded.longitude,
         height = excluded.height, status = excluded.status,
-        network = excluded.network, last_synced = excluded.last_synced
+        network = excluded.network, receiver_type = excluded.receiver_type,
+        antenna_type = excluded.antenna_type, country = excluded.country,
+        nav_system = excluded.nav_system, last_synced = excluded.last_synced
     `);
 
     let count = 0;
     const tx = db.transaction(() => {
       for (const line of lines) {
         if (!line.startsWith("STR;")) continue;
-        // NTRIP Sourcetable STR format:
-        // STR;mountpoint;identifier;format;formatDetails;carrier;navSystem;network;country;lat;lon;...
+        // NTRIP Sourcetable STR format (19 fields):
+        // STR;mountpoint;identifier;format;formatDetails;carrier;navSystem;network;country;lat;lon;
+        //     nmea;solution;generator;comprEncryp;authentication;fee;bitrate;misc
         const parts = line.split(";");
         if (parts.length < 11) continue;
 
         const name = parts[1];
         const lat = parseFloat(parts[9]);
         const lon = parseFloat(parts[10]);
+        const navSystem = parts[6] || "";     // GPS+GLO+GAL+BDS etc
+        const country = parts[8] || "";
+        // Generator field often contains receiver info: "Leica GR25" or "Trimble NetR9"
+        const generator = parts[13] || "";
+        // For ONOCOY, the identifier often has receiver info too
+        const identifier = parts[2] || "";
 
         if (!name || isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) continue;
 
-        stmt.run(name, lat, lon, 0, "ONLINE", "onocoy", now);
+        // Extract receiver and antenna from generator/identifier
+        const receiverType = generator || identifier || "";
+        const antennaType = ""; // Not reliably in sourcetable
+
+        stmt.run(name, lat, lon, 0, "ONLINE", "onocoy", receiverType, antennaType, country, navSystem, now);
         count++;
       }
     });

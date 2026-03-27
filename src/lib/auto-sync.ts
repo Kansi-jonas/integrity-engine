@@ -406,6 +406,14 @@ export function startAutoSync() {
   // ── Initial sync on startup (after 10s delay) ────────────────────────────
   setTimeout(async () => {
     try {
+      // Ensure Wizard base configuration exists
+      try {
+        const { ensureWizardSetup } = require("./wizard/auto-setup");
+        ensureWizardSetup(dataDir);
+      } catch (err) {
+        console.error("[WIZARD-SETUP] Failed:", err);
+      }
+
       console.log("[STARTUP] Running initial data sync...");
       const db = openDb();
       const { syncSessions, syncStations, syncOnocoyStations } = require("./geodnet-sync");
