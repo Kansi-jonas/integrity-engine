@@ -137,9 +137,12 @@ export async function probeOnocoyStation(
   stationName: string,
   host = "clients.onocoy.com",
   port = 2101,
-  mountpoint = "NRBY_ADV",
+  mountpoint?: string, // If not set, connect directly to stationName as mountpoint
   durationMs = 12000
 ): Promise<ProbeResult> {
+  // Connect directly to the station mountpoint, NOT NRBY_ADV
+  // Each ONOCOY station IS a mountpoint (e.g. AIAGEOGEO1, ANDLAXLAX1)
+  if (!mountpoint) mountpoint = stationName;
   const startTime = Date.now();
 
   const result: ProbeResult = {
