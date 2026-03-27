@@ -191,15 +191,17 @@ async function deploySshConfig(instance: CasterInstance, config: string): Promis
       }, 30000);
 
       conn.on("ready", () => {
+        // Sanitize configPath (prevent command injection)
+        const safePath = instance.configPath.replace(/[^a-zA-Z0-9_/.\-]/g, "");
         // Step 1: Backup current config
-        conn.exec(`cp ${instance.configPath} ${instance.configPath}~ 2>/dev/null; echo OK`, (err) => {
+        conn.exec(`cp '${safePath}' '${safePath}~' 2>/dev/null; echo OK`, (err) => {
           if (err) { /* backup is best-effort */ }
 
           // Step 2: Upload new config via SFTP
           conn.sftp((err, sftp) => {
             if (err) { clearTimeout(timeout); conn.end(); reject(err); return; }
 
-            const writeStream = sftp.createWriteStream(instance.configPath);
+            const writeStream = sftp.createWriteStream(safePath);
             writeStream.on("close", () => {
               // Step 3: Reload caster (kill -HUP)
               conn.exec("pkill -HUP ntrips 2>/dev/null || kill -HUP $(pidof ntrips) 2>/dev/null; echo RELOADED", (err, stream) => {

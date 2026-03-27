@@ -80,9 +80,9 @@ export async function POST(req: NextRequest) {
 
       // Step 6: Config Generator
       try {
-        const { runConfigGenerator } = require("@/lib/config-generator");
-        const config = runConfigGenerator(db, dataDir);
-        console.log(`[TRIGGER] Config Generator: ${config.qualified} qualified, ${config.excluded} excluded`);
+        const { generateQualifiedConfig } = require("@/lib/config-generator");
+        const config = generateQualifiedConfig(db, dataDir);
+        console.log(`[TRIGGER] Config Generator: ${config.stats?.qualified_count || 0} qualified, ${config.stats?.disqualified_count || 0} excluded`);
       } catch (e) {
         console.log(`[TRIGGER] Config Generator: skipped (${e})`);
       }

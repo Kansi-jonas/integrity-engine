@@ -16,7 +16,8 @@ export function middleware(request: NextRequest) {
 
   // Public endpoints (no auth)
   if (pathname === "/api/health") return NextResponse.next();
-  if (pathname.startsWith("/api/events")) return NextResponse.next(); // SSE
+  // SSE events require auth too (was: bypassed, leaked operational data)
+  // if (pathname.startsWith("/api/events")) return NextResponse.next();
   if (process.env.NODE_ENV === "development") return NextResponse.next();
 
   // API Key auth (for service-to-service: Wizard, rtkbi, external consumers)

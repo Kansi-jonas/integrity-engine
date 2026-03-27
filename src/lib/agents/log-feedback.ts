@@ -91,7 +91,8 @@ export function computeLogFeedback(
     const avgBytesPerSession = totalBytes / data.durations.length;
     const avgDuration = Math.max(1, avg);
     const avgDataRate = avgBytesPerSession / avgDuration; // bytes/s
-    const dataRateScore = avgDataRate > 100 ? Math.min(1, avgDataRate / 500) : avgDataRate / 100 * 0.5;
+    // Continuous scoring: 0 at 0 b/s, ~0.5 at 200 b/s, ~1.0 at 500+ b/s (no discontinuity)
+    const dataRateScore = Math.min(1, avgDataRate / 500);
 
     // Overall: stability weighted more than data rate
     const overallScore = stabilityScore * 0.7 + dataRateScore * 0.3;
