@@ -117,6 +117,16 @@ export async function POST(req: NextRequest) {
           console.log(`[TRIGGER] Thompson Sampling: skipped (${e})`);
         }
 
+        // Convert zones to Wizard format for Config Engine
+        try {
+          const { convertZonesToWizard, summarizeZoneChanges } = require("@/lib/zone-to-config");
+          const wizardZones = convertZonesToWizard(zoneResult, dataDir);
+          const changes = summarizeZoneChanges(zoneResult, dataDir);
+          console.log(`[TRIGGER] Zone-to-Config: ${Object.keys(wizardZones).length} wizard zones (${changes.added.length} added, ${changes.removed.length} removed, ${changes.updated.length} updated)`);
+        } catch (e) {
+          console.log(`[TRIGGER] Zone-to-Config: skipped (${e})`);
+        }
+
         // ONOCOY Gap-Fill
         try {
           const { runOnocoyGapFill } = require("@/lib/agents/onocoy-gapfill");

@@ -73,10 +73,32 @@ export function validateConfigSafety(config: string, dataDir: string): SafetyChe
       !trimmed.startsWith("circle(") &&
       !trimmed.startsWith("polygon(") &&
       !trimmed.startsWith("overlap(") &&
-      !trimmed.startsWith("tryrestart(");
+      !trimmed.startsWith("tryrestart(") &&
+      !trimmed.startsWith("CAS;") && // sourcetable CAS entry
+      !trimmed.startsWith("STR;") && // sourcetable STR entry
+      !trimmed.startsWith("passnmea"); // pinput continuation
   });
   const syntaxOk = invalidLines.length === 0;
   checks.push({ name: "syntax_check", passed: syntaxOk, detail: syntaxOk ? "All lines valid" : `${invalidLines.length} suspicious lines` });
+
+  // 6. Geo-fence syntax validation (balanced parentheses)
+  const fenceLines = config.split("\n").filter(l => l.includes("circle(") || l.includes("polygon("));
+  const fenceErrors: string[] = [];
+  for (const line of fenceLines) {
+    const opens = (line.match(/\(/g) || []).length;
+    const closes = (line.match(/\)/g) || []).length;
+    if (opens !== closes) fenceErrors.push("Unbalanced parentheses in geo-fence");
+  }
+  const fencesOk = fenceErrors.length === 0;
+  checks.push({ name: "geofence_syntax", passed: fencesOk, detail: fencesOk ? `${fenceLines.length} geo-fences valid` : fenceErrors[0] });
+
+  // 7. ONOCOY URLs point to correct host (not geodnet)
+  const onocoyPinputs = config.split("\n").filter(l => l.includes("ONO") && l.includes("--pinput"));
+  const wrongHost = onocoyPinputs.filter(l => l.includes("rtk.geodnet.com"));
+  const onocoyUrlOk = wrongHost.length === 0;
+  if (onocoyPinputs.length > 0) {
+    checks.push({ name: "onocoy_urls", passed: onocoyUrlOk, detail: onocoyUrlOk ? `${onocoyPinputs.length} ONOCOY streams point to clients.onocoy.com` : `${wrongHost.length} ONOCOY streams incorrectly point to rtk.geodnet.com` });
+  }
 
   return {
     safe: !blocked,
