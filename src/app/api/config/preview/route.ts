@@ -58,8 +58,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Mask credentials in preview (never expose API keys in browser)
+    const maskedConfig = config.replace(
+      /\/([^:]+):([^@]+)@/g,
+      (_, user, pass) => `/${user}:${"*".repeat(Math.min(8, pass.length))}@`
+    );
+
     if (format === "raw") {
-      return new Response(config || "# No config generated yet", {
+      return new Response(maskedConfig || "# No config generated yet", {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
           "Content-Disposition": 'attachment; filename="ntrips.cfg"',
@@ -93,7 +99,7 @@ export async function GET(req: NextRequest) {
     } catch {}
 
     return NextResponse.json({
-      config: exists ? config : null,
+      config: exists ? maskedConfig : null,
       exists,
       stats: {
         total_lines: lines.length,

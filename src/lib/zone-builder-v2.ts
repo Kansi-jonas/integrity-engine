@@ -30,10 +30,11 @@ export interface OverlayZone {
   type: "onocoy_primary" | "onocoy_failover";
   reason: "geodnet_poor" | "geodnet_absent" | "onocoy_better" | "gap_fill";
   priority: number;          // 5 = ONOCOY primary, 30 = ONOCOY failover
-  geofence_type: "circle";
+  geofence_type: "circle" | "polygon";
   lat: number;
   lon: number;
   radius_m: number;
+  polygon_points?: [number, number][];  // For polygon geofences
   onocoy_station: string;
   hardware_class: string;
   geodnet_quality: number;   // 0-1, nearest GEODNET quality
@@ -420,19 +421,43 @@ function clusterNearbyOverlays(overlays: OverlayZone[], clusterRadiusKm: number)
       const hasTesting = members.some(m => m.validation_status === "live_testing");
       const validationStatus = hasConfirmed ? "confirmed" : hasTesting ? "live_testing" : "untested";
 
+      // 4+ stations → Polygon (convex hull), 2-3 → Circle
+      const usePolygon = validMembers.length >= 4;
+
+      let polygonPoints: [number, number][] | undefined;
+      let finalRadius = radius;
+
+      if (usePolygon) {
+        // Convex hull of station positions + 10km buffer
+        const points: [number, number][] = validMembers.map(m => [m.lat, m.lon]);
+        const hull = convexHullSimple(points);
+        if (hull.length >= 3) {
+          // Add buffer by scaling outward from centroid
+          polygonPoints = hull.map(([lat, lon]) => {
+            const dist = haversineKm(centerLat, centerLon, lat, lon);
+            const scale = dist > 0 ? (dist + 10) / dist : 1; // 10km buffer
+            return [
+              Math.round((centerLat + (lat - centerLat) * scale) * 1e5) / 1e5,
+              Math.round((centerLon + (lon - centerLon) * scale) * 1e5) / 1e5,
+            ] as [number, number];
+          });
+        }
+      }
+
       clustered.push({
         id: `ono_region_${clustered.length + 1}`,
-        name: `ONOCOY ${getRegionName(centerLat, centerLon)} (${members.length} stations)`,
+        name: `ONOCOY ${getRegionName(centerLat, centerLon)} (${validMembers.length} stations)`,
         type: bestPriority <= 10 ? "onocoy_primary" : "onocoy_failover",
         reason: members[0].reason,
         priority: bestPriority,
-        geofence_type: "circle",
+        geofence_type: polygonPoints ? "polygon" : "circle",
         lat: Math.round(centerLat * 1e6) / 1e6,
         lon: Math.round(centerLon * 1e6) / 1e6,
-        radius_m: radius,
-        onocoy_station: stationNames.length > 50 ? `${members.length} stations` : stationNames,
+        radius_m: polygonPoints ? 0 : finalRadius,
+        polygon_points: polygonPoints,
+        onocoy_station: `${validMembers.length} stations`,
         hardware_class: bestHardware,
-        geodnet_quality: Math.round(members.reduce((s, m) => s + m.geodnet_quality, 0) / members.length * 100) / 100,
+        geodnet_quality: Math.round(validMembers.reduce((s, m) => s + m.geodnet_quality, 0) / validMembers.length * 100) / 100,
         onocoy_confidence: Math.round(bestConfidence * 100) / 100,
         validation_status: validationStatus,
         enabled: true,
@@ -441,6 +466,29 @@ function clusterNearbyOverlays(overlays: OverlayZone[], clusterRadiusKm: number)
   }
 
   return clustered;
+}
+
+// Simple convex hull (Graham scan) for polygon generation
+function convexHullSimple(points: [number, number][]): [number, number][] {
+  if (points.length <= 3) return points;
+  const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const p0 = sorted[0];
+  const rest = sorted.slice(1).sort((a, b) => {
+    const angleA = Math.atan2(a[0] - p0[0], a[1] - p0[1]);
+    const angleB = Math.atan2(b[0] - p0[0], b[1] - p0[1]);
+    return angleA - angleB;
+  });
+  const stack: [number, number][] = [p0];
+  for (const pt of rest) {
+    while (stack.length > 1) {
+      const top = stack[stack.length - 1];
+      const sec = stack[stack.length - 2];
+      const cross = (top[1] - sec[1]) * (pt[0] - sec[0]) - (top[0] - sec[0]) * (pt[1] - sec[1]);
+      if (cross <= 0) stack.pop(); else break;
+    }
+    stack.push(pt);
+  }
+  return stack;
 }
 
 function getRegionName(lat: number, lon: number): string {
