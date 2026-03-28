@@ -488,6 +488,19 @@ function mergeOverlappingCircles(overlays: OverlayZone[]): OverlayZone[] {
       continue;
     }
 
+    // If cluster spans > 200km, keep as individual circles
+    // Prevents continental chains while allowing regional clusters (Belgium ~150km)
+    const clusterLats = members.map(m => m.lat);
+    const clusterLons = members.map(m => m.lon);
+    const clusterExtent = haversineKm(
+      Math.min(...clusterLats), Math.min(...clusterLons),
+      Math.max(...clusterLats), Math.max(...clusterLons)
+    );
+    if (clusterExtent > 200) {
+      result.push(...members);
+      continue;
+    }
+
     // Merge into convex hull polygon
     mergeIdx++;
     const points: [number, number][] = members.map(m => [m.lat, m.lon]);
