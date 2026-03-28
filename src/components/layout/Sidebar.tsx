@@ -190,14 +190,10 @@ export function Sidebar() {
       {/* Logo */}
       <div className={`flex items-center h-14 border-b border-[var(--color-gray-200)] ${collapsed ? "justify-center px-2" : "px-4"}`}>
         {collapsed ? (
-          <div className="w-8 h-8 rounded-lg bg-[#0067ff] flex items-center justify-center">
-            <span className="text-white font-bold text-sm">R</span>
-          </div>
+          <img src="/logo.png" alt="RTKdata" className="h-7 w-auto" />
         ) : (
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#0067ff] flex items-center justify-center">
-              <span className="text-white font-bold text-sm">R</span>
-            </div>
+            <img src="/logo.png" alt="RTKdata" className="h-8 w-auto" />
             <div>
               <p className="text-[13px] font-semibold text-[var(--color-gray-900)]">RTKdata</p>
               <p className="text-[10px] text-[var(--color-gray-400)]">Integrity Engine</p>

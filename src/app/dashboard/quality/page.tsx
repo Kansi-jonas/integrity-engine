@@ -174,7 +174,12 @@ export default function QualityPage() {
         {((data as any)?.overlays || data?.zones || []).length > 0 && (
           <div className="rounded-xl border border-[var(--color-border)] bg-white shadow-[var(--shadow-xs)]">
             <div className="px-5 py-4 border-b border-[var(--color-border-light)]">
-              <h2 className="text-[15px] font-semibold text-[var(--color-text-primary)]">ONOCOY Overlay Zones</h2>
+              <h2 className="text-[15px] font-semibold text-[var(--color-text-primary)]">
+                ONOCOY Overlay Zones
+                <span className="ml-2 text-[12px] font-normal text-[var(--color-text-tertiary)]">
+                  ({((data as any)?.overlays || data?.zones || []).length} total{((data as any)?.overlays || data?.zones || []).length > 100 ? ", showing top 100" : ""})
+                </span>
+              </h2>
               <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">
                 Targeted overlays where ONOCOY improves or fills gaps in GEODNET coverage
               </p>
@@ -193,7 +198,7 @@ export default function QualityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {((data as any)?.overlays || data?.zones || []).map((z: any, i: number) => {
+                  {((data as any)?.overlays || data?.zones || []).slice(0, 100).map((z: any, i: number) => {
                     const isPrimary = z.type === "onocoy_primary" || z.priority <= 10;
                     const validationColor = z.validation_status === "confirmed" ? "text-emerald-700 bg-emerald-50"
                       : z.validation_status === "live_testing" ? "text-amber-700 bg-amber-50"
