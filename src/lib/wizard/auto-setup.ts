@@ -152,5 +152,23 @@ export function ensureWizardSetup(dataDir: string) {
     }
   }
 
+  // ── Patch existing settings if missing fields ─────────────────────────
+  // auto-setup only runs once, but settings may be missing fields added later
+  try {
+    const settingsPath = path.join(wizardDir, "settings.json");
+    if (fs.existsSync(settingsPath)) {
+      const existing = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+      let patched = false;
+      if (!existing.casterUrl) {
+        existing.casterUrl = settings.casterUrl;
+        patched = true;
+      }
+      if (patched) {
+        fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2));
+        console.log("[WIZARD-SETUP] Patched settings.json with missing fields");
+      }
+    }
+  } catch {}
+
   console.log("[WIZARD-SETUP] Default configuration created: 2 networks, 3 network mountpoints, 1 mountpoint (SMART), 1 group");
 }
