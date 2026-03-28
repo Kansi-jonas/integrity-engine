@@ -199,18 +199,18 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
     });
   }
 
-  // ── Smart Clustering: merge nearby overlays into regional fences ─────
-  // Instead of 100 individual circles in Australia, create 3-5 regional circles
-  const clustered = clusterNearbyOverlays(overlays, 50); // 50km cluster radius
-  if (clustered.length < overlays.length) {
-    console.log(`[ZONE-V2] Clustered ${overlays.length} overlays → ${clustered.length} regional fences`);
-  }
+  // ── Regional Mega-Clustering ─────────────────────────────────────────
+  // Instead of 160 individual circles in AU, create 1-3 mega-polygons per region.
+  // ONOCOY NRBY_ADV auto-selects best station — geofence only needs to
+  // activate the ONOCOY backend in the right region.
+  const megaClustered = clusterByRegion(overlays);
+  console.log(`[ZONE-V2] Regional mega-clustering: ${overlays.length} overlays → ${megaClustered.length} regional fences`);
   overlays.length = 0;
-  overlays.push(...clustered);
+  overlays.push(...megaClustered);
 
-  // ── Overlay Limit ──────────────────────────────────────────────────────
+  // ── Overlay Limit (safety cap) ─────────────────────────────────────────
   if (overlays.length > MAX_OVERLAYS) {
-    overlays.sort((a, b) => b.onocoy_confidence - a.onocoy_confidence);
+    overlays.sort((a, b) => a.priority - b.priority || b.onocoy_confidence - a.onocoy_confidence);
     overlays.length = MAX_OVERLAYS;
     console.log(`[ZONE-V2] Trimmed to ${MAX_OVERLAYS} overlays`);
   }
@@ -350,9 +350,118 @@ function loadTrustScores(dataDir: string): Map<string, number> {
   return map;
 }
 
-// ─── Smart Overlay Clustering ────────────────────────────────────────────────
-// Merges nearby overlays into regional fences.
-// Instead of 100 circles in Australia → 3-5 regional circles.
+// ─── Regional Mega-Clustering ────────────────────────────────────────────────
+// Groups overlays by continent/region and creates 1 convex hull polygon per region.
+// ONOCOY NRBY_ADV auto-selects best station — geofence only activates the backend.
+// This reduces 160 AU circles → 1 AU polygon, freeing slots for NA, EU, etc.
+
+interface Region {
+  name: string;
+  latMin: number; latMax: number;
+  lonMin: number; lonMax: number;
+}
+
+const REGIONS: Region[] = [
+  { name: "AU", latMin: -50, latMax: -8, lonMin: 110, lonMax: 165 },
+  { name: "NA-West", latMin: 25, latMax: 55, lonMin: -130, lonMax: -100 },
+  { name: "NA-Central", latMin: 25, latMax: 55, lonMin: -100, lonMax: -80 },
+  { name: "NA-East", latMin: 25, latMax: 55, lonMin: -80, lonMax: -50 },
+  { name: "SA", latMin: -56, latMax: 12, lonMin: -82, lonMax: -34 },
+  { name: "EU-West", latMin: 35, latMax: 72, lonMin: -12, lonMax: 15 },
+  { name: "EU-East", latMin: 35, latMax: 72, lonMin: 15, lonMax: 45 },
+  { name: "ME", latMin: 12, latMax: 42, lonMin: 25, lonMax: 65 },
+  { name: "Asia", latMin: 5, latMax: 55, lonMin: 65, lonMax: 145 },
+  { name: "Africa", latMin: -36, latMax: 38, lonMin: -20, lonMax: 55 },
+];
+
+const MEGA_CLUSTER_THRESHOLD = 8; // Regions with ≥8 overlays become mega-zones
+
+function clusterByRegion(overlays: OverlayZone[]): OverlayZone[] {
+  if (overlays.length <= 20) return overlays; // Don't mega-cluster small sets
+
+  // Group overlays by region
+  const regionMap = new Map<string, OverlayZone[]>();
+  const unassigned: OverlayZone[] = [];
+
+  for (const overlay of overlays) {
+    let assigned = false;
+    for (const region of REGIONS) {
+      if (overlay.lat >= region.latMin && overlay.lat <= region.latMax &&
+          overlay.lon >= region.lonMin && overlay.lon <= region.lonMax) {
+        if (!regionMap.has(region.name)) regionMap.set(region.name, []);
+        regionMap.get(region.name)!.push(overlay);
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) unassigned.push(overlay);
+  }
+
+  const result: OverlayZone[] = [];
+
+  for (const [regionName, members] of regionMap) {
+    if (members.length < MEGA_CLUSTER_THRESHOLD) {
+      // Small regions: keep individual overlays, apply fine-grained clustering
+      result.push(...clusterNearbyOverlays(members, 50));
+    } else {
+      // Large regions: create 1 mega convex hull polygon
+      const points: [number, number][] = members.map(m => [m.lat, m.lon]);
+      const hull = convexHullSimple(points);
+
+      if (hull.length < 3) {
+        // Degenerate hull — fallback to fine clustering
+        result.push(...clusterNearbyOverlays(members, 50));
+        continue;
+      }
+
+      // Add 50km buffer by scaling outward from centroid
+      const centerLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
+      const centerLon = members.reduce((s, m) => s + m.lon, 0) / members.length;
+      const bufferedHull = hull.map(([lat, lon]) => {
+        const dist = haversineKm(centerLat, centerLon, lat, lon);
+        const scale = dist > 0 ? (dist + 50) / dist : 1; // 50km buffer
+        return [
+          Math.round((centerLat + (lat - centerLat) * scale) * 1e5) / 1e5,
+          Math.round((centerLon + (lon - centerLon) * scale) * 1e5) / 1e5,
+        ] as [number, number];
+      });
+
+      const bestConfidence = Math.max(...members.map(m => m.onocoy_confidence));
+      const bestPriority = Math.min(...members.map(m => m.priority));
+      const bestHardware = members.find(m => m.hardware_class === "survey_grade")?.hardware_class || members[0].hardware_class;
+      const hasConfirmed = members.some(m => m.validation_status === "confirmed");
+
+      result.push({
+        id: `ono_mega_${regionName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+        name: `ONOCOY ${regionName} (${members.length} stations)`,
+        type: bestPriority <= 10 ? "onocoy_primary" : "onocoy_failover",
+        reason: members[0].reason,
+        priority: bestPriority,
+        geofence_type: "polygon",
+        lat: Math.round(centerLat * 1e6) / 1e6,
+        lon: Math.round(centerLon * 1e6) / 1e6,
+        radius_m: 0,
+        polygon_points: bufferedHull,
+        onocoy_station: `${members.length} stations`,
+        hardware_class: bestHardware,
+        geodnet_quality: Math.round(members.reduce((s, m) => s + m.geodnet_quality, 0) / members.length * 100) / 100,
+        onocoy_confidence: Math.round(bestConfidence * 100) / 100,
+        validation_status: hasConfirmed ? "confirmed" : "untested",
+        enabled: true,
+      });
+
+      console.log(`[ZONE-V2] Mega-zone ${regionName}: ${members.length} stations → 1 polygon (${bufferedHull.length} vertices)`);
+    }
+  }
+
+  // Add unassigned overlays as-is
+  result.push(...unassigned);
+
+  return result;
+}
+
+// ─── Fine-Grained Overlay Clustering ─────────────────────────────────────────
+// For small regions: merges nearby overlays into circles/polygons.
 
 function clusterNearbyOverlays(overlays: OverlayZone[], clusterRadiusKm: number): OverlayZone[] {
   if (overlays.length <= 10) return overlays; // Don't cluster small sets
