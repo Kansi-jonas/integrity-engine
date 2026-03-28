@@ -59,9 +59,14 @@ export function convertZonesToWizard(
       : { type: "circle", radius: 35000, lat: 0, lon: 0 };
 
     // Map network to a network ID (these must match the Wizard's network definitions)
+    // V2 overlays: all overlays ARE ONOCOY (type = onocoy_primary or onocoy_failover)
+    // V1 zones: use zone.network field
     let networkId = "geodnet"; // default
-    if (zone.network === "onocoy") networkId = "onocoy";
-    else if (zone.network === "multi") networkId = "geodnet"; // Primary network for multi
+    if (zone.network === "onocoy" || zone.type?.startsWith("onocoy") || zone.onocoy_station) {
+      networkId = "onocoy";
+    } else if (zone.network === "multi") {
+      networkId = "geodnet"; // Primary network for multi
+    }
 
     const wizardZone: Zone = {
       id: zone.id,
