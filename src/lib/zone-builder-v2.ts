@@ -63,7 +63,7 @@ export interface ZoneBuildV2Result {
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const GEODNET_POOR_THRESHOLD = 0.60;     // Quality below this = "poor"
+const GEODNET_POOR_THRESHOLD = 0.55;     // Quality below this = "poor" (unified with onocoy-gapfill)
 const GEODNET_ABSENT_KM = 40;            // No GEODNET within this = "absent"
 const ONOCOY_MIN_CONFIDENCE = 0.50;      // Minimum confidence to create overlay
 const MAX_OVERLAYS = 200;                // Hard limit (well under Alberding 500)
@@ -186,13 +186,15 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
       geofence_type: "circle",
       lat: Math.round(ono.latitude * 1e6) / 1e6,
       lon: Math.round(ono.longitude * 1e6) / 1e6,
-      radius_m: Math.min(MAX_OVERLAY_RADIUS_M, geoDist * 600),
+      // Consumer radius capped at 25km (F9P at 60-80km = float only, useless for RTK)
+      radius_m: ono.hardware_class === "consumer" ? Math.min(25000, geoDist * 400) : Math.min(MAX_OVERLAY_RADIUS_M, geoDist * 600),
       onocoy_station: ono.name,
       hardware_class: ono.hardware_class,
       geodnet_quality: 0,
       onocoy_confidence: validation?.status === "confirmed" ? 0.8 : 0.4,
       validation_status: validation?.status || "untested",
-      enabled: validation?.status === "confirmed" || geoDist > 80,
+      // Enable ALL stations in GEODNET gaps >40km — better untested than nothing
+      enabled: true,
     });
   }
 
@@ -376,17 +378,36 @@ function clusterNearbyOverlays(overlays: OverlayZone[], clusterRadiusKm: number)
     }
 
     if (members.length === 1) {
-      // Single station — keep as individual overlay
       const { _idx, ...overlay } = anchor;
       clustered.push(overlay);
     } else {
-      // Multiple stations — merge into regional fence
-      const centerLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
-      const centerLon = members.reduce((s, m) => s + m.lon, 0) / members.length;
+      // Confidence-weighted centroid (survey-grade stations pull harder)
+      let totalWeight = 0;
+      let wLat = 0, wLon = 0;
+      for (const m of members) {
+        const w = m.onocoy_confidence || 0.5;
+        wLat += m.lat * w;
+        wLon += m.lon * w;
+        totalWeight += w;
+      }
+      const centerLat = totalWeight > 0 ? wLat / totalWeight : members.reduce((s, m) => s + m.lat, 0) / members.length;
+      const centerLon = totalWeight > 0 ? wLon / totalWeight : members.reduce((s, m) => s + m.lon, 0) / members.length;
 
-      // Radius: cover all member stations + buffer
-      const maxDist = Math.max(...members.map(m => haversineKm(centerLat, centerLon, m.lat, m.lon)));
-      const radius = Math.round(Math.min(MAX_OVERLAY_RADIUS_M, (maxDist + 15) * 1000)); // +15km buffer
+      // Outlier ejection: remove members >35km from centroid (RTK useless beyond 35km)
+      const validMembers = members.filter(m => haversineKm(centerLat, centerLon, m.lat, m.lon) <= 35);
+      if (validMembers.length === 0) {
+        // All ejected — keep anchor as individual
+        const { _idx, ...overlay } = anchor;
+        clustered.push(overlay);
+        // Ejected members will form their own clusters in next pass
+        for (const ejected of members.filter(m => m !== anchor)) {
+          used.delete(ejected._idx); // Re-enable for clustering
+        }
+        continue;
+      }
+
+      const maxDist = Math.max(...validMembers.map(m => haversineKm(centerLat, centerLon, m.lat, m.lon)));
+      const radius = Math.round(Math.min(MAX_OVERLAY_RADIUS_M, (maxDist + 10) * 1000)); // +10km buffer
 
       // Best confidence and priority from members
       const bestConfidence = Math.max(...members.map(m => m.onocoy_confidence));

@@ -118,7 +118,7 @@ function classifyHardware(receiver: string, antenna: string): { class: OnocoySta
 // ─── Gap Detection ──────────────────────────────────────────────────────────
 
 const GAP_THRESHOLD_KM = 40;          // No GEODNET within 40km = gap
-const POOR_QUALITY_THRESHOLD = 0.50;   // GEODNET quality below 50% = poor
+const POOR_QUALITY_THRESHOLD = 0.55;   // GEODNET quality below 55% = poor (unified with zone-builder-v2)
 const UNTRUSTED_THRESHOLD = 0.40;      // GEODNET trust below 40% = untrusted
 
 export function runOnocoyGapFill(db: Database.Database, dataDir: string): GapFillResult {
@@ -384,9 +384,13 @@ export function updateOnocoyValidation(
   const existing = state[station] || { status: "untested" };
 
   // Update with new data
-  const newFixRate = existing.fix_rate
-    ? (existing.fix_rate * 0.7 + fixRate * 0.3) // EMA: 70% old, 30% new
-    : fixRate;
+  // EMA alpha=0.4 (was 0.3 — faster convergence for degraded stations)
+  // Staleness reset: if last update >7 days ago, reset to current value
+  const lastUpdated = existing.last_updated ? new Date(existing.last_updated).getTime() : 0;
+  const isStale = Date.now() - lastUpdated > 7 * 86400000;
+  const newFixRate = (existing.fix_rate && !isStale)
+    ? (existing.fix_rate * 0.6 + fixRate * 0.4) // EMA: 60% old, 40% new
+    : fixRate; // Fresh start if stale or first time
   const newSessions = (existing.sessions || 0) + sessionCount;
 
   // Determine status based on accumulated data
