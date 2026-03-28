@@ -462,6 +462,16 @@ function mergeOverlappingCircles(overlays: OverlayZone[]): OverlayZone[] {
       continue;
     }
 
+    // Check extent: if cluster spans > 300km, too big → keep as individual circles
+    const lats = members.map(m => m.lat);
+    const lons = members.map(m => m.lon);
+    const extent = haversineKm(Math.min(...lats), Math.min(...lons), Math.max(...lats), Math.max(...lons));
+    if (extent > 300) {
+      // Too spread out — keep individual circles (prevents NL-to-Istanbul monster)
+      result.push(...members);
+      continue;
+    }
+
     // Merge into convex hull polygon
     mergeIdx++;
     const points: [number, number][] = members.map(m => [m.lat, m.lon]);
