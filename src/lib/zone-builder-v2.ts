@@ -199,14 +199,12 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
     });
   }
 
-  // ── Regional Mega-Clustering ─────────────────────────────────────────
-  // Instead of 160 individual circles in AU, create 1-3 mega-polygons per region.
-  // ONOCOY NRBY_ADV auto-selects best station — geofence only needs to
-  // activate the ONOCOY backend in the right region.
-  const megaClustered = clusterByRegion(overlays);
-  console.log(`[ZONE-V2] Regional mega-clustering: ${overlays.length} overlays → ${megaClustered.length} regional fences`);
+  // ── Overlap-Based Merging ─────────────────────────────────────────────
+  // Circles that overlap → merge into convex hull polygon. No hardcoded regions.
+  // Connected components via Union-Find with spatial grid for O(n) performance.
+  const merged = mergeOverlappingCircles(overlays);
   overlays.length = 0;
-  overlays.push(...megaClustered);
+  overlays.push(...merged);
 
   // ── Overlay Limit (safety cap) ─────────────────────────────────────────
   if (overlays.length > MAX_OVERLAYS) {
@@ -350,115 +348,153 @@ function loadTrustScores(dataDir: string): Map<string, number> {
   return map;
 }
 
-// ─── Regional Mega-Clustering ────────────────────────────────────────────────
-// Groups overlays by continent/region and creates 1 convex hull polygon per region.
-// ONOCOY NRBY_ADV auto-selects best station — geofence only activates the backend.
-// This reduces 160 AU circles → 1 AU polygon, freeing slots for NA, EU, etc.
+// ─── Overlap-Based Merging ────────────────────────────────────────────────────
+// PhD-level approach: no hardcoded regions needed.
+//
+// Algorithm:
+//   1. Start with individual circles (each ONOCOY station)
+//   2. Find overlapping circles using Union-Find (connected components)
+//   3. Each connected component with 2+ circles → merge into convex hull polygon
+//   4. Single isolated circles stay as-is
+//
+// Why this works: ONOCOY NRBY_ADV auto-selects the best station within range.
+// The geofence only needs to activate the ONOCOY backend in the right area.
+// Overlapping circles serve the same general area → one polygon is sufficient.
 
-interface Region {
-  name: string;
-  latMin: number; latMax: number;
-  lonMin: number; lonMax: number;
-}
+function mergeOverlappingCircles(overlays: OverlayZone[]): OverlayZone[] {
+  if (overlays.length <= 5) return overlays;
 
-const REGIONS: Region[] = [
-  { name: "AU", latMin: -50, latMax: -8, lonMin: 110, lonMax: 180 },
-  { name: "NA-West", latMin: 25, latMax: 72, lonMin: -170, lonMax: -100 },
-  { name: "NA-Central", latMin: 25, latMax: 72, lonMin: -100, lonMax: -80 },
-  { name: "NA-East", latMin: 25, latMax: 72, lonMin: -80, lonMax: -50 },
-  { name: "SA", latMin: -56, latMax: 15, lonMin: -82, lonMax: -34 },
-  { name: "EU-West", latMin: 35, latMax: 72, lonMin: -12, lonMax: 15 },
-  { name: "EU-East", latMin: 35, latMax: 72, lonMin: 15, lonMax: 45 },
-  { name: "ME", latMin: 12, latMax: 42, lonMin: 25, lonMax: 65 },
-  { name: "SEA", latMin: -10, latMax: 25, lonMin: 90, lonMax: 145 },  // Southeast Asia + India
-  { name: "EA", latMin: 25, latMax: 55, lonMin: 65, lonMax: 145 },   // East Asia (China, Japan, Korea)
-  { name: "Africa", latMin: -36, latMax: 38, lonMin: -20, lonMax: 55 },
-  { name: "Pacific", latMin: -50, latMax: 25, lonMin: 145, lonMax: 180 }, // NZ, Pacific Islands
-];
+  const n = overlays.length;
 
-const MEGA_CLUSTER_THRESHOLD = 4; // Regions with ≥4 overlays become mega-zones
+  // ── Union-Find ──────────────────────────────────────────────────────
+  const parent = new Int32Array(n);
+  const rank = new Int32Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
 
-function clusterByRegion(overlays: OverlayZone[]): OverlayZone[] {
-  if (overlays.length <= 20) return overlays; // Don't mega-cluster small sets
+  function find(x: number): number {
+    while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
+  }
 
-  // Group overlays by region
-  const regionMap = new Map<string, OverlayZone[]>();
-  const unassigned: OverlayZone[] = [];
+  function union(a: number, b: number): void {
+    const ra = find(a), rb = find(b);
+    if (ra === rb) return;
+    if (rank[ra] < rank[rb]) parent[ra] = rb;
+    else if (rank[ra] > rank[rb]) parent[rb] = ra;
+    else { parent[rb] = ra; rank[ra]++; }
+  }
 
-  for (const overlay of overlays) {
-    let assigned = false;
-    for (const region of REGIONS) {
-      if (overlay.lat >= region.latMin && overlay.lat <= region.latMax &&
-          overlay.lon >= region.lonMin && overlay.lon <= region.lonMax) {
-        if (!regionMap.has(region.name)) regionMap.set(region.name, []);
-        regionMap.get(region.name)!.push(overlay);
-        assigned = true;
-        break;
+  // ── Build adjacency: circles overlap if distance < r1 + r2 ─────────
+  // Use spatial grid for O(n) instead of O(n²)
+  const GRID_SIZE = 1.0; // ~110km grid cells
+  const grid = new Map<string, number[]>();
+
+  for (let i = 0; i < n; i++) {
+    const gx = Math.floor(overlays[i].lon / GRID_SIZE);
+    const gy = Math.floor(overlays[i].lat / GRID_SIZE);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const key = `${gx + dx},${gy + dy}`;
+        const cell = grid.get(key);
+        if (cell) {
+          for (const j of cell) {
+            const dist = haversineKm(overlays[i].lat, overlays[i].lon, overlays[j].lat, overlays[j].lon);
+            const overlapDist = (overlays[i].radius_m + overlays[j].radius_m) / 1000;
+            if (dist < overlapDist) union(i, j);
+          }
+        }
       }
     }
-    if (!assigned) unassigned.push(overlay);
+    const key = `${gx},${gy}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key)!.push(i);
+  }
+
+  // ── Group by connected component ───────────────────────────────────
+  const components = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    if (!components.has(root)) components.set(root, []);
+    components.get(root)!.push(i);
   }
 
   const result: OverlayZone[] = [];
+  let mergedCount = 0;
 
-  for (const [regionName, members] of regionMap) {
-    if (members.length < MEGA_CLUSTER_THRESHOLD) {
-      // Small regions: keep individual overlays, apply fine-grained clustering
-      result.push(...clusterNearbyOverlays(members, 50));
-    } else {
-      // Large regions: create 1 mega convex hull polygon
-      const points: [number, number][] = members.map(m => [m.lat, m.lon]);
-      const hull = convexHullSimple(points);
+  for (const [, indices] of components) {
+    const members = indices.map(i => overlays[i]);
 
-      if (hull.length < 3) {
-        // Degenerate hull — fallback to fine clustering
-        result.push(...clusterNearbyOverlays(members, 50));
-        continue;
-      }
+    if (members.length === 1) {
+      // Isolated circle — keep as-is
+      result.push(members[0]);
+      continue;
+    }
 
-      // Add 50km buffer by scaling outward from centroid
-      const centerLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
-      const centerLon = members.reduce((s, m) => s + m.lon, 0) / members.length;
-      const bufferedHull = hull.map(([lat, lon]) => {
-        const dist = haversineKm(centerLat, centerLon, lat, lon);
-        const scale = dist > 0 ? (dist + 50) / dist : 1; // 50km buffer
-        return [
-          Math.round((centerLat + (lat - centerLat) * scale) * 1e5) / 1e5,
-          Math.round((centerLon + (lon - centerLon) * scale) * 1e5) / 1e5,
-        ] as [number, number];
-      });
+    // ── Merge component into convex hull polygon ─────────────────
+    mergedCount++;
+    const points: [number, number][] = members.map(m => [m.lat, m.lon]);
+    const hull = convexHullSimple(points);
 
-      const bestConfidence = Math.max(...members.map(m => m.onocoy_confidence));
-      const bestPriority = Math.min(...members.map(m => m.priority));
-      const bestHardware = members.find(m => m.hardware_class === "survey_grade")?.hardware_class || members[0].hardware_class;
-      const hasConfirmed = members.some(m => m.validation_status === "confirmed");
+    const centerLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
+    const centerLon = members.reduce((s, m) => s + m.lon, 0) / members.length;
 
+    if (hull.length < 3) {
+      // Degenerate (collinear) — use circle around centroid
+      const maxDist = Math.max(...members.map(m => haversineKm(centerLat, centerLon, m.lat, m.lon)));
       result.push({
-        id: `ono_mega_${regionName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
-        name: `ONOCOY ${regionName} (${members.length} stations)`,
-        type: bestPriority <= 10 ? "onocoy_primary" : "onocoy_failover",
-        reason: members[0].reason,
-        priority: bestPriority,
-        geofence_type: "polygon",
+        ...members[0],
+        id: `ono_merged_${mergedCount}`,
+        name: `ONOCOY ${getRegionName(centerLat, centerLon)} (${members.length} stations)`,
+        geofence_type: "circle",
         lat: Math.round(centerLat * 1e6) / 1e6,
         lon: Math.round(centerLon * 1e6) / 1e6,
-        radius_m: 0,
-        polygon_points: bufferedHull,
+        radius_m: Math.round(Math.min(MAX_OVERLAY_RADIUS_M, (maxDist + 50) * 1000)),
+        polygon_points: undefined,
         onocoy_station: `${members.length} stations`,
-        hardware_class: bestHardware,
-        geodnet_quality: Math.round(members.reduce((s, m) => s + m.geodnet_quality, 0) / members.length * 100) / 100,
-        onocoy_confidence: Math.round(bestConfidence * 100) / 100,
-        validation_status: hasConfirmed ? "confirmed" : "untested",
-        enabled: true,
+        onocoy_confidence: Math.round(Math.max(...members.map(m => m.onocoy_confidence)) * 100) / 100,
+        priority: Math.min(...members.map(m => m.priority)),
+        hardware_class: members.find(m => m.hardware_class === "survey_grade")?.hardware_class || members[0].hardware_class,
+        validation_status: members.some(m => m.validation_status === "confirmed") ? "confirmed" : "untested",
       });
-
-      console.log(`[ZONE-V2] Mega-zone ${regionName}: ${members.length} stations → 1 polygon (${bufferedHull.length} vertices)`);
+      continue;
     }
+
+    // Buffer hull outward by max member radius (so polygon covers all original circles)
+    const maxRadiusKm = Math.max(...members.map(m => m.radius_m)) / 1000;
+    const bufferedHull = hull.map(([lat, lon]) => {
+      const dist = haversineKm(centerLat, centerLon, lat, lon);
+      const bufferKm = Math.min(maxRadiusKm, 80); // Cap buffer at 80km
+      const scale = dist > 0 ? (dist + bufferKm) / dist : 1;
+      return [
+        Math.round((centerLat + (lat - centerLat) * scale) * 1e5) / 1e5,
+        Math.round((centerLon + (lon - centerLon) * scale) * 1e5) / 1e5,
+      ] as [number, number];
+    });
+
+    const bestConfidence = Math.max(...members.map(m => m.onocoy_confidence));
+    const bestPriority = Math.min(...members.map(m => m.priority));
+
+    result.push({
+      id: `ono_merged_${mergedCount}`,
+      name: `ONOCOY ${getRegionName(centerLat, centerLon)} (${members.length} stations)`,
+      type: bestPriority <= 10 ? "onocoy_primary" : "onocoy_failover",
+      reason: members[0].reason,
+      priority: bestPriority,
+      geofence_type: "polygon",
+      lat: Math.round(centerLat * 1e6) / 1e6,
+      lon: Math.round(centerLon * 1e6) / 1e6,
+      radius_m: 0,
+      polygon_points: bufferedHull,
+      onocoy_station: `${members.length} stations`,
+      hardware_class: members.find(m => m.hardware_class === "survey_grade")?.hardware_class || members[0].hardware_class,
+      geodnet_quality: Math.round(members.reduce((s, m) => s + m.geodnet_quality, 0) / members.length * 100) / 100,
+      onocoy_confidence: Math.round(bestConfidence * 100) / 100,
+      validation_status: members.some(m => m.validation_status === "confirmed") ? "confirmed" : "untested",
+      enabled: true,
+    });
   }
 
-  // Add unassigned overlays as-is
-  result.push(...unassigned);
-
+  console.log(`[ZONE-V2] Overlap merge: ${overlays.length} circles → ${result.length} zones (${mergedCount} polygons merged)`);
   return result;
 }
 
