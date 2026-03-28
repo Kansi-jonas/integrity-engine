@@ -67,7 +67,7 @@ export interface ZoneBuildV2Result {
 
 const GEODNET_POOR_THRESHOLD = 0.55;     // Quality below this = "poor"
 const GEODNET_ABSENT_KM = 40;            // No GEODNET within this = "absent"
-const MAX_OVERLAYS = 2000;               // No artificial cap — let legitimate gaps fill naturally
+const MAX_OVERLAYS = 500;                // Practical limit for config performance
 const DEFAULT_OVERLAY_RADIUS_M = 35000;  // 35km default radius
 const MIN_OVERLAY_RADIUS_M = 15000;      // 15km minimum
 const MAX_OVERLAY_RADIUS_M = 45000;      // 45km max (RTK-physikalisch korrekt)
@@ -114,21 +114,21 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
     const validation = validationState.get(ono.name);
     if (validation?.status === "rejected") continue;
 
-    // ── KEY FILTER: GEODNET must have a gap ──────────────────────
+    // ── KEY FILTER: GEODNET must be truly ABSENT (>40km) ──────────
+    // "Poor quality" is not enough — GEODNET within 40km still works.
+    // Only create ONOCOY overlay where there is NO GEODNET at all.
     let reason: OverlayZone["reason"] | null = null;
     let priority = PRI_ONOCOY_FAILOVER;
 
     if (geoDist > GEODNET_ABSENT_KM) {
       reason = "geodnet_absent";
       priority = PRI_ONOCOY_PRIMARY;
-    } else if (geoQuality < GEODNET_POOR_THRESHOLD && geoQuality > 0) {
-      reason = "geodnet_poor";
-      priority = PRI_ONOCOY_PRIMARY;
     } else if (validation?.status === "confirmed" && (validation.fix_rate || 0) > 75) {
+      // Live-validated: ONOCOY proven better than nearby GEODNET
       reason = "onocoy_better";
       priority = PRI_ONOCOY_PRIMARY;
     } else {
-      // GEODNET is fine here — skip (no failover where GEODNET works)
+      // GEODNET is within 40km — skip
       continue;
     }
 
