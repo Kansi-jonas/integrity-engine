@@ -31,10 +31,11 @@ export interface OverlayZone {
   type: "onocoy_primary" | "onocoy_failover";
   reason: "geodnet_poor" | "geodnet_absent" | "onocoy_better" | "gap_fill";
   priority: number;          // 5 = ONOCOY primary, 30 = ONOCOY failover
-  geofence_type: "circle";
+  geofence_type: "circle" | "polygon";
   lat: number;
   lon: number;
   radius_m: number;
+  polygon_points?: [number, number][];  // For merged polygon geofences
   onocoy_station: string;
   hardware_class: string;
   geodnet_quality: number;   // 0-1, nearest GEODNET quality
@@ -231,8 +232,15 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
     console.log(`[ZONE-V3] Dedup: ${overlays.length} → ${deduped.length} (${overlays.length - deduped.length} duplicates removed)`);
   }
 
+  // ── Overlap Merge: overlapping circles → convex hull polygon ──────
+  // PhD rationale: NRBY_ADV auto-selects best station — geofence is just
+  // an activation zone. Dense areas (AU, NA) get 1 polygon instead of 400 circles.
+  // Isolated stations in small gaps keep their individual circles.
+  const merged = mergeOverlappingCircles(deduped);
+  console.log(`[ZONE-V3] Overlap merge: ${deduped.length} → ${merged.length} zones`);
+
   // ── Safety cap ────────────────────────────────────────────────────
-  let finalOverlays = deduped;
+  let finalOverlays = merged;
   if (finalOverlays.length > MAX_OVERLAYS) {
     finalOverlays.sort((a, b) => a.priority - b.priority || b.onocoy_confidence - a.onocoy_confidence);
     finalOverlays = finalOverlays.slice(0, MAX_OVERLAYS);
@@ -387,4 +395,150 @@ function getRegionName(lat: number, lon: number): string {
   if (lat > -45 && lat <= -10 && lon > 110 && lon < 180) return "AU";
   if (lat > 20 && lat <= 50 && lon > 60 && lon < 140) return "Asia";
   return `${Math.round(lat)}N${Math.round(lon)}E`;
+}
+
+// ─── Overlap-Based Circle Merging ────────────────────────────────────────────
+// Union-Find on overlapping circles → convex hull polygon for dense clusters.
+// Isolated circles stay as-is. Applied AFTER GEODNET-gap filter.
+
+function mergeOverlappingCircles(overlays: OverlayZone[]): OverlayZone[] {
+  if (overlays.length <= 3) return overlays;
+
+  const n = overlays.length;
+  const parent = new Int32Array(n);
+  const ufRank = new Int32Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
+
+  function find(x: number): number {
+    while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
+  }
+  function union(a: number, b: number): void {
+    const ra = find(a), rb = find(b);
+    if (ra === rb) return;
+    if (ufRank[ra] < ufRank[rb]) parent[ra] = rb;
+    else if (ufRank[ra] > ufRank[rb]) parent[rb] = ra;
+    else { parent[rb] = ra; ufRank[ra]++; }
+  }
+
+  // Spatial grid for O(n) overlap detection
+  const GRID = 1.0; // ~110km cells
+  const grid = new Map<string, number[]>();
+  for (let i = 0; i < n; i++) {
+    const gx = Math.floor(overlays[i].lon / GRID);
+    const gy = Math.floor(overlays[i].lat / GRID);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const cell = grid.get(`${gx + dx},${gy + dy}`);
+        if (cell) {
+          for (const j of cell) {
+            const dist = haversineKm(overlays[i].lat, overlays[i].lon, overlays[j].lat, overlays[j].lon);
+            if (dist < (overlays[i].radius_m + overlays[j].radius_m) / 1000) union(i, j);
+          }
+        }
+      }
+    }
+    const key = `${gx},${gy}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key)!.push(i);
+  }
+
+  // Group components
+  const components = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    if (!components.has(root)) components.set(root, []);
+    components.get(root)!.push(i);
+  }
+
+  const result: OverlayZone[] = [];
+  let mergeIdx = 0;
+
+  for (const [, indices] of components) {
+    const members = indices.map(i => overlays[i]);
+
+    if (members.length === 1) {
+      result.push(members[0]);
+      continue;
+    }
+
+    // Merge into convex hull polygon
+    mergeIdx++;
+    const points: [number, number][] = members.map(m => [m.lat, m.lon]);
+    const hull = convexHullSimple(points);
+    const cLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
+    const cLon = members.reduce((s, m) => s + m.lon, 0) / members.length;
+
+    if (hull.length < 3) {
+      // Collinear — circle around centroid
+      const maxDist = Math.max(...members.map(m => haversineKm(cLat, cLon, m.lat, m.lon)));
+      result.push({
+        ...members[0],
+        id: `ono_merged_${mergeIdx}`,
+        name: `ONOCOY ${getRegionName(cLat, cLon)} (${members.length} stations)`,
+        geofence_type: "circle",
+        lat: Math.round(cLat * 1e6) / 1e6,
+        lon: Math.round(cLon * 1e6) / 1e6,
+        radius_m: Math.round(Math.min(MAX_OVERLAY_RADIUS_M, (maxDist + 45) * 1000)),
+        polygon_points: undefined,
+        onocoy_station: `${members.length} stations`,
+        onocoy_confidence: Math.round(Math.max(...members.map(m => m.onocoy_confidence)) * 100) / 100,
+        priority: Math.min(...members.map(m => m.priority)),
+      });
+      continue;
+    }
+
+    // Buffer hull outward by 45km (max RTK range from outermost station)
+    const bufferedHull = hull.map(([lat, lon]) => {
+      const dist = haversineKm(cLat, cLon, lat, lon);
+      const scale = dist > 0 ? (dist + 45) / dist : 1;
+      return [
+        Math.round((cLat + (lat - cLat) * scale) * 1e5) / 1e5,
+        Math.round((cLon + (lon - cLon) * scale) * 1e5) / 1e5,
+      ] as [number, number];
+    });
+
+    result.push({
+      id: `ono_merged_${mergeIdx}`,
+      name: `ONOCOY ${getRegionName(cLat, cLon)} (${members.length} stations)`,
+      type: Math.min(...members.map(m => m.priority)) <= 10 ? "onocoy_primary" : "onocoy_failover",
+      reason: members[0].reason,
+      priority: Math.min(...members.map(m => m.priority)),
+      geofence_type: "polygon",
+      lat: Math.round(cLat * 1e6) / 1e6,
+      lon: Math.round(cLon * 1e6) / 1e6,
+      radius_m: 0,
+      polygon_points: bufferedHull,
+      onocoy_station: `${members.length} stations`,
+      hardware_class: members.find(m => m.hardware_class === "survey_grade")?.hardware_class || members[0].hardware_class,
+      geodnet_quality: Math.round(members.reduce((s, m) => s + m.geodnet_quality, 0) / members.length * 100) / 100,
+      onocoy_confidence: Math.round(Math.max(...members.map(m => m.onocoy_confidence)) * 100) / 100,
+      validation_status: members.some(m => m.validation_status === "confirmed") ? "confirmed" : "untested",
+      enabled: true,
+    });
+  }
+
+  return result;
+}
+
+// Graham scan convex hull
+function convexHullSimple(points: [number, number][]): [number, number][] {
+  if (points.length <= 3) return points;
+  const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const p0 = sorted[0];
+  const rest = sorted.slice(1).sort((a, b) => {
+    const aA = Math.atan2(a[0] - p0[0], a[1] - p0[1]);
+    const aB = Math.atan2(b[0] - p0[0], b[1] - p0[1]);
+    return aA - aB;
+  });
+  const stack: [number, number][] = [p0];
+  for (const pt of rest) {
+    while (stack.length > 1) {
+      const top = stack[stack.length - 1], sec = stack[stack.length - 2];
+      const cross = (top[1] - sec[1]) * (pt[0] - sec[0]) - (top[0] - sec[0]) * (pt[1] - sec[1]);
+      if (cross <= 0) stack.pop(); else break;
+    }
+    stack.push(pt);
+  }
+  return stack;
 }
