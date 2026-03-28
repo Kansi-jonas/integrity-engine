@@ -362,19 +362,21 @@ interface Region {
 }
 
 const REGIONS: Region[] = [
-  { name: "AU", latMin: -50, latMax: -8, lonMin: 110, lonMax: 165 },
-  { name: "NA-West", latMin: 25, latMax: 55, lonMin: -130, lonMax: -100 },
-  { name: "NA-Central", latMin: 25, latMax: 55, lonMin: -100, lonMax: -80 },
-  { name: "NA-East", latMin: 25, latMax: 55, lonMin: -80, lonMax: -50 },
-  { name: "SA", latMin: -56, latMax: 12, lonMin: -82, lonMax: -34 },
+  { name: "AU", latMin: -50, latMax: -8, lonMin: 110, lonMax: 180 },
+  { name: "NA-West", latMin: 25, latMax: 72, lonMin: -170, lonMax: -100 },
+  { name: "NA-Central", latMin: 25, latMax: 72, lonMin: -100, lonMax: -80 },
+  { name: "NA-East", latMin: 25, latMax: 72, lonMin: -80, lonMax: -50 },
+  { name: "SA", latMin: -56, latMax: 15, lonMin: -82, lonMax: -34 },
   { name: "EU-West", latMin: 35, latMax: 72, lonMin: -12, lonMax: 15 },
   { name: "EU-East", latMin: 35, latMax: 72, lonMin: 15, lonMax: 45 },
   { name: "ME", latMin: 12, latMax: 42, lonMin: 25, lonMax: 65 },
-  { name: "Asia", latMin: 5, latMax: 55, lonMin: 65, lonMax: 145 },
+  { name: "SEA", latMin: -10, latMax: 25, lonMin: 90, lonMax: 145 },  // Southeast Asia + India
+  { name: "EA", latMin: 25, latMax: 55, lonMin: 65, lonMax: 145 },   // East Asia (China, Japan, Korea)
   { name: "Africa", latMin: -36, latMax: 38, lonMin: -20, lonMax: 55 },
+  { name: "Pacific", latMin: -50, latMax: 25, lonMin: 145, lonMax: 180 }, // NZ, Pacific Islands
 ];
 
-const MEGA_CLUSTER_THRESHOLD = 8; // Regions with ≥8 overlays become mega-zones
+const MEGA_CLUSTER_THRESHOLD = 4; // Regions with ≥4 overlays become mega-zones
 
 function clusterByRegion(overlays: OverlayZone[]): OverlayZone[] {
   if (overlays.length <= 20) return overlays; // Don't mega-cluster small sets
