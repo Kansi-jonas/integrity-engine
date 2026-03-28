@@ -125,8 +125,7 @@ export default function ConfigPage() {
             </button>
             <button onClick={handleDeploy} disabled={deploying}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
-              {deploying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              Deploy to Caster
+              {deploying ? <><Loader2 className="h-4 w-4 animate-spin" /> Deploying...</> : <><Upload className="h-4 w-4" /> Deploy to Caster</>}
             </button>
           </div>
         </div>

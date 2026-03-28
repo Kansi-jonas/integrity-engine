@@ -100,7 +100,7 @@ export default function QualityPage() {
               </span>
             </div>
             <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">
-              {data?.architecture || "Physics-based coverage quality"} — {data?.totalCells?.toLocaleString() || 0} cells, {(data as any)?.overlays?.length || 0} ONOCOY overlays
+              {data?.architecture || "Physics-based coverage quality"} — {data?.totalCells?.toLocaleString() || 0} cells, {data?.overlays?.length || 0} ONOCOY overlays
             </p>
           </div>
           <button onClick={fetchData} disabled={loading} className="p-2 rounded-lg hover:bg-white border border-[var(--color-border)] transition shadow-[var(--shadow-xs)]">
@@ -154,7 +154,7 @@ export default function QualityPage() {
               H3 hexagons colored by quality tier — green = Full RTK, yellow = Degraded, orange = Float, red = No Coverage
             </p>
           </div>
-          <QualityMap cells={data?.cells || []} zones={(data as any)?.overlays || data?.zones || []} />
+          <QualityMap cells={data?.cells || []} zones={data?.overlays || data?.zones || []} />
         </div>
 
         {/* Global GEODNET Banner */}
@@ -164,20 +164,20 @@ export default function QualityPage() {
               <Shield className="h-5 w-5 text-emerald-600" />
             </div>
             <div>
-              <h3 className="text-[15px] font-semibold text-emerald-900">Global GEODNET — Priority {(data as any)?.global_geodnet?.priority || 10}</h3>
+              <h3 className="text-[15px] font-semibold text-emerald-900">Global GEODNET — Priority {data?.global_geodnet?.priority || 10}</h3>
               <p className="text-[13px] text-emerald-700">Worldwide fallback via AUTO mountpoint — 25K+ stations, always available</p>
             </div>
           </div>
         </div>
 
         {/* ONOCOY Overlay List */}
-        {((data as any)?.overlays || data?.zones || []).length > 0 && (
+        {(data?.overlays || data?.zones || []).length > 0 && (
           <div className="rounded-xl border border-[var(--color-border)] bg-white shadow-[var(--shadow-xs)]">
             <div className="px-5 py-4 border-b border-[var(--color-border-light)]">
               <h2 className="text-[15px] font-semibold text-[var(--color-text-primary)]">
                 ONOCOY Overlay Zones
                 <span className="ml-2 text-[12px] font-normal text-[var(--color-text-tertiary)]">
-                  ({((data as any)?.overlays || data?.zones || []).length} total{((data as any)?.overlays || data?.zones || []).length > 100 ? ", showing top 100" : ""})
+                  ({(data?.overlays || data?.zones || []).length} total{(data?.overlays || data?.zones || []).length > 100 ? ", showing top 100" : ""})
                 </span>
               </h2>
               <p className="text-[13px] text-[var(--color-text-secondary)] mt-0.5">
@@ -198,7 +198,7 @@ export default function QualityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {((data as any)?.overlays || data?.zones || []).slice(0, 100).map((z: any, i: number) => {
+                  {(data?.overlays || data?.zones || []).slice(0, 100).map((z: any, i: number) => {
                     const isPrimary = z.type === "onocoy_primary" || z.priority <= 10;
                     const validationColor = z.validation_status === "confirmed" ? "text-emerald-700 bg-emerald-50"
                       : z.validation_status === "live_testing" ? "text-amber-700 bg-amber-50"

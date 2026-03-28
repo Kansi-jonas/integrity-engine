@@ -110,20 +110,29 @@ export default function DashboardPage() {
   const [mapData, setMapData] = useState<any>(null);
   const [env, setEnv] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchErrors, setFetchErrors] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const safeFetch = async (url: string) => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${url}: ${r.status}`);
+    return r.json();
+  };
 
   const fetchAll = () => {
     setLoading(true);
+    const errors: string[] = [];
     Promise.all([
-      fetch("/api/anomalies").then(r => r.json()).catch(() => null),
-      fetch("/api/trust").then(r => r.json()).catch(() => null),
-      fetch("/api/space-weather").then(r => r.json()).catch(() => null),
-      fetch("/api/fences").then(r => r.json()).catch(() => null),
-      fetch("/api/correlation").then(r => r.json()).catch(() => null),
-      fetch("/api/map").then(r => r.json()).catch(() => null),
-      fetch("/api/environment").then(r => r.json()).catch(() => null),
+      safeFetch("/api/anomalies").catch(e => { errors.push(e.message); return null; }),
+      safeFetch("/api/trust").catch(e => { errors.push(e.message); return null; }),
+      safeFetch("/api/space-weather").catch(e => { errors.push(e.message); return null; }),
+      safeFetch("/api/fences").catch(e => { errors.push(e.message); return null; }),
+      safeFetch("/api/correlation").catch(e => { errors.push(e.message); return null; }),
+      safeFetch("/api/map").catch(e => { errors.push(e.message); return null; }),
+      safeFetch("/api/environment").catch(e => { errors.push(e.message); return null; }),
     ]).then(([s, t, w, f, c, m, e]) => {
       setSignal(s); setTrust(t); setWeather(w); setFences(f); setCorrelation(c); setMapData(m); setEnv(e);
+      setFetchErrors(errors);
     }).finally(() => setLoading(false));
   };
 
@@ -142,6 +151,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8">
       <div className="max-w-[1600px] mx-auto space-y-6">
+        {/* Error Banner */}
+        {fetchErrors.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-center gap-3 text-sm">
+            <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+            <span className="text-amber-800">Some data sources unavailable ({fetchErrors.length}). Dashboard shows partial data.</span>
+            <button onClick={() => setFetchErrors([])} className="ml-auto text-amber-600 hover:text-amber-800 text-xs">Dismiss</button>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
