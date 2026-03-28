@@ -42,29 +42,37 @@ export default function QualityMap({
 
     mapInstance.current = map;
 
-    // ── Render H3 Hexagons ──────────────────────────────────────────────
+    // ── Render H3 Hexagons (Canvas for performance) ────────────────────
     if (cells.length > 0) {
+      const hexCanvas = L.canvas({ padding: 0.5 });
+
       for (const cell of cells) {
-        if (!cell.boundary || cell.boundary.length < 3) continue;
+        if (!cell.boundary || !Array.isArray(cell.boundary) || cell.boundary.length < 3) continue;
 
         const color = TIER_COLORS[cell.zone_tier] || "#6b7280";
         const isModeled = cell.is_interpolated === 1;
 
-        // Opacity based on confidence + tier
         const baseOpacity = isModeled ? 0.15 : 0.35;
         const opacity = baseOpacity + (cell.confidence || 0) * 0.2;
 
         try {
-          const polygon = L.polygon(
-            cell.boundary.map((p: number[]) => [p[0], p[1]]),
-            {
-              color: color,
-              fillColor: color,
-              fillOpacity: Math.min(0.6, opacity),
-              weight: 0.5,
-              opacity: 0.4,
+          // Validate boundary points are numbers
+          const points: L.LatLngExpression[] = [];
+          for (const p of cell.boundary) {
+            if (Array.isArray(p) && p.length >= 2 && typeof p[0] === "number" && typeof p[1] === "number") {
+              points.push([p[0], p[1]]);
             }
-          ).addTo(map);
+          }
+          if (points.length < 3) continue;
+
+          const polygon = L.polygon(points, {
+            color: color,
+            fillColor: color,
+            fillOpacity: Math.min(0.6, opacity),
+            weight: 0.5,
+            opacity: 0.4,
+            renderer: hexCanvas,
+          }).addTo(map);
 
           polygon.bindTooltip(
             `<div style="font-size:12px;line-height:1.5">` +
