@@ -43,20 +43,26 @@ export function convertZonesToWizard(
 
   // Convert each zone/overlay
   for (const zone of zones) {
-    // V2 overlay format: circle geofences with lat/lon/radius_m
-    const geofence: GeoFence = zone.geofence_type === "circle" || zone.lat
-      ? {
-          type: "circle",
-          radius: zone.radius_m || zone.geofence?.circle?.radius_m || 35000,
-          lat: zone.lat || zone.geofence?.circle?.lat || 0,
-          lon: zone.lon || zone.geofence?.circle?.lon || 0,
-        }
-      : zone.geofence_type === "polygon"
-      ? {
-          type: "polygon",
-          points: zone.geofence?.polygon?.points || [],
-        }
-      : { type: "circle", radius: 35000, lat: 0, lon: 0 };
+    // V2 overlay format: geofence_type + lat/lon/radius_m (circles) or polygon_points (polygons)
+    let geofence: GeoFence;
+    if (zone.geofence_type === "polygon" && zone.polygon_points?.length >= 3) {
+      // Clustered overlay with convex hull polygon (4+ stations)
+      geofence = {
+        type: "polygon",
+        points: zone.polygon_points,
+      };
+    } else if (zone.lat && zone.lon) {
+      // Individual overlay or small cluster with circle geofence
+      geofence = {
+        type: "circle",
+        radius: zone.radius_m || zone.geofence?.circle?.radius_m || 35000,
+        lat: zone.lat,
+        lon: zone.lon,
+      };
+    } else {
+      // Fallback — should not happen
+      geofence = { type: "circle", radius: 35000, lat: 0, lon: 0 };
+    }
 
     // Map network to a network ID (these must match the Wizard's network definitions)
     // V2 overlays: all overlays ARE ONOCOY (type = onocoy_primary or onocoy_failover)

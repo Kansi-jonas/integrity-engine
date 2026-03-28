@@ -26,13 +26,74 @@ import type {
   Alias,
 } from './types'
 
+import {
+  mountpointFromJSON,
+  groupFromJSON,
+  zoneFromJSON,
+  networkMountpointFromJSON,
+  streamFromJSON,
+} from './utils'
+
+// ── Input normalization ────────────────────────────────────────────────────
+// JSON files store snake_case (network_mountpoint_id, network_id) but
+// TypeScript types use camelCase (networkMountpointId, networkId).
+// Normalize once at the top of generateConfig so all callers are safe.
+
+function normalizeConfigInput(input: ConfigInput): ConfigInput {
+  // Normalize mountpoint backends: network_mountpoint_id → networkMountpointId
+  const mountpoints: Record<string, Mountpoint> = {}
+  for (const [k, mp] of Object.entries(input.mountpoints)) {
+    try { mountpoints[k] = mountpointFromJSON(mp as any) }
+    catch { mountpoints[k] = mp }
+  }
+
+  // Normalize network mountpoints: network_id → networkId, pass_nmea → passNmea
+  const networkMountpoints: Record<string, NetworkMountpoint> = {}
+  for (const [k, nm] of Object.entries(input.networkMountpoints)) {
+    try { networkMountpoints[k] = networkMountpointFromJSON(nm as any) }
+    catch { networkMountpoints[k] = nm }
+  }
+
+  // Normalize group credentials: network_id → networkId
+  const groups: Record<string, Group> = {}
+  for (const [k, g] of Object.entries(input.groups)) {
+    try { groups[k] = groupFromJSON(g as any) }
+    catch { groups[k] = g }
+  }
+
+  // Normalize zones: network_id → networkId
+  const zones: Record<string, Zone> = {}
+  for (const [k, z] of Object.entries(input.zones)) {
+    try { zones[k] = zoneFromJSON(z as any) }
+    catch { zones[k] = z }
+  }
+
+  // Normalize streams: network_mountpoint_id → networkMountpointId
+  const streams: Record<string, Stream> = {}
+  for (const [k, s] of Object.entries(input.streams)) {
+    try { streams[k] = streamFromJSON(s as any) }
+    catch { streams[k] = s }
+  }
+
+  return {
+    ...input,
+    mountpoints,
+    networkMountpoints,
+    groups,
+    zones,
+    streams,
+  }
+}
+
 // ── Geo-fence serialization ────────────────────────────────────────────────
 // Alberding syntax: circle(radius,lat,lon) or polygon(lat1,lon1,lat2,lon2,...)
 // Per ALBERDING_SYNTAX.md §13
 
 function formatCoord(n: number): string {
-  // Use up to 6 decimal places, strip trailing zeros
-  return parseFloat(n.toFixed(6)).toString()
+  // Fixed-point with up to 6 decimals, strip trailing zeros
+  // Never use parseFloat which can produce scientific notation (e.g. 1e-6)
+  const fixed = n.toFixed(6)
+  return fixed.replace(/\.?0+$/, '') || '0'
 }
 
 export function serializeGeoFence(gf: GeoFence): string {
@@ -638,7 +699,9 @@ export interface GenerateConfigOptions {
   configIncludePath?: string
 }
 
-export function generateConfig(input: ConfigInput, opts?: GenerateConfigOptions): string {
+export function generateConfig(rawInput: ConfigInput, opts?: GenerateConfigOptions): string {
+  // Normalize snake_case JSON → camelCase TypeScript (safe for all callers)
+  const input = normalizeConfigInput(rawInput)
   const { networks, networkMountpoints, mountpoints, users, groups, zones, streams, accounts, aliases, settings } = input
   const lines: string[] = []
 
