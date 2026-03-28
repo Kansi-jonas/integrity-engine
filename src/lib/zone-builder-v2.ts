@@ -239,12 +239,38 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
   const merged = mergeOverlappingCircles(deduped);
   console.log(`[ZONE-V3] Overlap merge: ${deduped.length} → ${merged.length} zones`);
 
-  // ── Safety cap ────────────────────────────────────────────────────
+  // ── Geographic diversity cap ────────────────────────────────────
+  // Round-robin across 10° grid cells so no single region dominates
   let finalOverlays = merged;
   if (finalOverlays.length > MAX_OVERLAYS) {
-    finalOverlays.sort((a, b) => a.priority - b.priority || b.onocoy_confidence - a.onocoy_confidence);
-    finalOverlays = finalOverlays.slice(0, MAX_OVERLAYS);
-    console.log(`[ZONE-V3] Capped at ${MAX_OVERLAYS} overlays`);
+    // Group by 10° grid cell
+    const buckets = new Map<string, OverlayZone[]>();
+    for (const o of finalOverlays) {
+      const key = `${Math.round(o.lat / 10) * 10},${Math.round(o.lon / 10) * 10}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(o);
+    }
+    // Sort within each bucket by priority + confidence
+    for (const [, bucket] of buckets) {
+      bucket.sort((a, b) => a.priority - b.priority || b.onocoy_confidence - a.onocoy_confidence);
+    }
+    // Round-robin pick from all buckets
+    const selected: OverlayZone[] = [];
+    let round = 0;
+    while (selected.length < MAX_OVERLAYS) {
+      let added = false;
+      for (const [, bucket] of buckets) {
+        if (round < bucket.length) {
+          selected.push(bucket[round]);
+          added = true;
+          if (selected.length >= MAX_OVERLAYS) break;
+        }
+      }
+      if (!added) break;
+      round++;
+    }
+    finalOverlays = selected;
+    console.log(`[ZONE-V3] Geographic diversity cap: ${merged.length} → ${finalOverlays.length} (${buckets.size} grid cells)`);
   }
 
   // Sort by priority then confidence
