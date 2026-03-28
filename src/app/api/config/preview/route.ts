@@ -59,8 +59,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Mask credentials in preview (never expose API keys in browser)
+    // CRITICAL: [^\n] prevents matching across newlines (was eating entire pinput lines)
     const maskedConfig = config.replace(
-      /\/([^:]+):([^@]+)@/g,
+      /\/([^:\n]+):([^@\n]+)@/g,
       (_, user, pass) => `/${user}:${"*".repeat(Math.min(8, pass.length))}@`
     );
 
