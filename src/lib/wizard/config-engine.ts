@@ -602,7 +602,7 @@ function generateSourcetable(
   const country = settings.casterCountry
   const lat = settings.casterLat
   const lon = settings.casterLon
-  const url = settings.casterUrl
+  const url = settings.casterUrl || 'https://rtkdata.com'
 
   // Use --dynamicsourcetable if enabled — hides inactive mountpoints
   // Per ALBERDING_SYNTAX.md §3.33
@@ -727,7 +727,7 @@ export function generateConfig(rawInput: ConfigInput, opts?: GenerateConfigOptio
 
   lines.push('# --- Ports ---')
   lines.push(`--ports = ${settings.ports}`)
-  lines.push(`--udpports = ${settings.udpports}`)
+  if (settings.udpports) lines.push(`--udpports = ${settings.udpports}`)
   lines.push('')
 
   lines.push('# --- Timeouts & Limits ---')

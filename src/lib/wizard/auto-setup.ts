@@ -127,6 +127,7 @@ export function ensureWizardSetup(dataDir: string) {
     casterCountry: "DEU",
     casterLat: "49.35",
     casterLon: "7.15",
+    casterUrl: "https://rtkdata.com",
   };
 
   // ── Write all files ─────────────────────────────────────────────────────
