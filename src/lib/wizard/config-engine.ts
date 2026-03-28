@@ -570,7 +570,8 @@ function generateSourcetable(
     if (backendNetworkIds.size === 1) {
       const firstNmId = mp.backends[0]?.networkMountpointId
       const firstNm = firstNmId ? networkMountpoints[firstNmId] : undefined
-      networkName = firstNm ? (networks[firstNm.networkId]?.name ?? 'RTKdata') : 'RTKdata'
+      // Always brand as RTKdata — white-label, never expose upstream network
+      networkName = 'RTKdata'
     } else {
       networkName = 'RTKdata'
     }
@@ -586,7 +587,8 @@ function generateSourcetable(
   const manualStreams = streams.filter((s) => s.enabled && ['pinput', 'input', 'marker', 'smarker'].includes(s.type))
   for (const stream of manualStreams) {
     const nm = stream.networkMountpointId ? networkMountpoints[stream.networkMountpointId] : undefined
-    const networkName = nm ? (networks[nm.networkId]?.name ?? 'RTKdata') : 'RTKdata'
+    // Always brand as RTKdata — white-label
+    const networkName = 'RTKdata'
     lines.push(
       `STR;${stream.name};${ident};` +
         `RTCM 3.3;1005(10),1074(1),1084(1),1094(1),1124(1),1230(10);` +
