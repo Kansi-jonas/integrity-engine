@@ -163,21 +163,18 @@ export function buildZonesV2(db: Database.Database, dataDir: string): ZoneBuildV
     });
   }
 
-  // ── Strategy 2: Consumer ONOCOY only where GEODNET completely absent ──
+  // ── Strategy 2: ANY ONOCOY where GEODNET is absent (>40km gap) ──────
+  // Better untested ONOCOY than NO coverage. Session feedback will validate.
   for (const ono of onocoyStations) {
-    if (ono.hardware_class === "survey_grade") continue; // Already handled
-    if (ono.hardware_class === "unknown") continue; // Skip unknown
+    if (ono.hardware_class === "survey_grade") continue; // Already handled in Strategy 1
 
     const nearestGeo = findNearestGeonet(ono.latitude, ono.longitude, geodnetStations);
     const geoDist = nearestGeo ? nearestGeo.dist : 999;
 
-    if (geoDist <= GEODNET_ABSENT_KM) continue; // GEODNET covers this area
+    if (geoDist <= GEODNET_ABSENT_KM) continue; // GEODNET covers this area — no need
 
     const validation = validationState.get(ono.name);
-    if (validation?.status === "rejected") continue;
-
-    // Consumer hardware only if confirmed by live testing OR very large gap
-    if (validation?.status !== "confirmed" && geoDist < 80) continue;
+    if (validation?.status === "rejected") continue; // Proven bad — skip
 
     overlayIdx++;
     overlays.push({
