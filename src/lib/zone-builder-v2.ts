@@ -66,7 +66,7 @@ export interface ZoneBuildV2Result {
 
 const GEODNET_POOR_THRESHOLD = 0.55;     // Quality below this = "poor"
 const GEODNET_ABSENT_KM = 40;            // No GEODNET within this = "absent"
-const MAX_OVERLAYS = 500;                // Alberding practical limit
+const MAX_OVERLAYS = 2000;               // No artificial cap — let legitimate gaps fill naturally
 const DEFAULT_OVERLAY_RADIUS_M = 35000;  // 35km default radius
 const MIN_OVERLAY_RADIUS_M = 15000;      // 15km minimum
 const MAX_OVERLAY_RADIUS_M = 45000;      // 45km max (RTK-physikalisch korrekt)
