@@ -255,16 +255,24 @@ export function runTrustV2(db: Database.Database, dataDir: string): StationTrust
     const blendedScore = 0.6 * trustScore + 0.4 * composite;
 
     // Flag with hysteresis
+    // Meridian Rule Check Q9: Fast-track recovery for stations that fully recover
+    // Standard: 24h exclusion minimum
+    // Fast-track: 6h if blendedScore >= 0.70 (strong recovery, not just marginal)
     let flag: StationTrustV2["flag"] = "new";
     if (totalSamples < 10) {
       flag = "new";
     } else if (st.excluded_at) {
-      // Check if exclusion can be lifted
       const hoursExcluded = (now - st.excluded_at) / 3600000;
-      if (hoursExcluded >= EXCLUSION_MIN_DURATION_H && blendedScore >= RESTORE_THRESHOLD) {
+      // Fast-track: strong recovery (>0.70) after 6h minimum
+      const fastTrack = hoursExcluded >= 6 && blendedScore >= 0.70;
+      // Standard: moderate recovery (>0.55) after 24h
+      const standardRestore = hoursExcluded >= EXCLUSION_MIN_DURATION_H && blendedScore >= RESTORE_THRESHOLD;
+
+      if (fastTrack || standardRestore) {
         st.excluded_at = null;
         st.exclude_reason = null;
-        flag = "probation"; // Restored but on probation
+        flag = fastTrack ? "probation" : "probation";
+        console.log(`[TRUST-V2] ${station}: restored via ${fastTrack ? "fast-track (6h)" : "standard (24h)"} — score ${blendedScore.toFixed(3)}`);
       } else {
         flag = "excluded";
       }

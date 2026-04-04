@@ -23,7 +23,7 @@ export interface PredictiveAlert {
   current_value: number;
   previous_value: number;  // 6h ago
   change_pct: number;
-  recommended_action: "pre_downgrade" | "pre_exclude" | "pre_promote" | "monitor";
+  recommended_action: "pre_downgrade" | "pre_exclude" | "pre_promote" | "monitor" | "investigate_systemic";
   confidence: number;
   description: string;
 }
@@ -175,14 +175,33 @@ export function runPredictiveFailover(db: Database.Database, dataDir: string): P
     }
   } catch {}
 
+  // ── 3. Meridian: Cascade-Exhaustion detection ──────────────────────────
+  // If >30% of monitored stations are degrading simultaneously, this is
+  // likely a systemic issue (space weather, infrastructure), not individual failures.
+  const degradingCount = alerts.filter(a => a.trend === "degrading" || a.trend === "critical").length;
+  const improvingCount = alerts.filter(a => a.trend === "improving").length;
+  if (degradingCount > 10 && degradingCount > improvingCount * 3) {
+    alerts.unshift({
+      station: "SYSTEM",
+      indicator: "cascade_exhaustion_warning",
+      trend: "critical",
+      current_value: degradingCount,
+      previous_value: improvingCount,
+      change_pct: 0,
+      recommended_action: "investigate_systemic",
+      confidence: 0.9,
+      description: `Cascade warning: ${degradingCount} stations degrading vs ${improvingCount} improving. Possible systemic issue — hold individual exclusions.`,
+    });
+  }
+
   // Sort by confidence descending
   alerts.sort((a, b) => b.confidence - a.confidence);
 
   const result: PredictiveResult = {
     alerts: alerts.slice(0, 50),
     kp_forecast: kpForecast,
-    stations_at_risk: alerts.filter(a => a.trend === "degrading" || a.trend === "critical").length,
-    stations_improving: alerts.filter(a => a.trend === "improving").length,
+    stations_at_risk: degradingCount,
+    stations_improving: improvingCount,
     computed_at: new Date().toISOString(),
   };
 

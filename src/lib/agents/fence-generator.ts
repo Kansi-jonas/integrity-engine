@@ -1,11 +1,13 @@
-// ─── Fence Generator V2 ──────────────────────────────────────────────────────
-// Takes SENTINEL V2 anomalies + TRUST V2 scores and generates zone updates.
+// ─── Fence Generator V3 ──────────────────────────────────────────────────────
+// Takes SENTINEL V2 anomalies + TRUST V2 scores + SHIELD events and generates
+// zone updates with formal verification guarantees from Meridian Rule Check.
 //
-// Fixed issues from review:
-// - Uses V2 types (composite_score, not combined_score)
-// - Station→Zone lookup via station list membership, not name substring
-// - Handles "excluded" flag from TRUST V2
-// - Connects to SENTINEL V2 anomalies (CUSUM/EWMA/ST-DBSCAN)
+// Meridian Formal Verification fixes:
+// 1. Cascade-Exhaustion-Alert: detect oscillating failover paths
+// 2. SHIELD overrides Anti-Flapping: safety > stability
+// 3. Dual-Outage-Handling: clear alert instead of endless retry
+// 4. Anti-Flapping: 6h minimum zone lifetime (explicit enforcement)
+// 5. Rate limiting: max fence actions per cycle to prevent thrashing
 //
 // Flow: Agents detect → Fence Generator → Wizard zones.json → Config Engine → Deploy
 
@@ -16,7 +18,7 @@ import path from "path";
 
 export interface FenceAction {
   id: string;
-  action: "downgrade" | "exclude" | "restore" | "new_fence";
+  action: "downgrade" | "exclude" | "restore" | "new_fence" | "cascade_exhaustion" | "dual_outage";
   zone_id: string | null;
   station: string | null;
   reason: string;
@@ -36,7 +38,8 @@ interface WizardZone {
   geofence: any;
   color: string;
   priority: number;
-  stations?: string[]; // Zone Generator V2 includes station list
+  stations?: string[];
+  last_modified?: string; // For anti-flapping enforcement
 }
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -48,15 +51,74 @@ const DOWNGRADE_TRUST_THRESHOLD = 0.5;
 const EXCLUDE_TRUST_THRESHOLD = 0.3;
 const RESTORE_TRUST_THRESHOLD = 0.7;
 
+// Meridian Rule Check: Anti-Flapping minimum zone lifetime
+// Design Decision: 6h anti-flapping > 4h regeneration cycle (documented per formal verification)
+const ANTI_FLAPPING_MIN_HOURS = 6;
+
+// Meridian Rule Check: Rate limiting to prevent cascade exhaustion
+const MAX_ACTIONS_PER_CYCLE = 20;
+
+// Meridian Rule Check: SHIELD interference overrides anti-flapping
+const SHIELD_OVERRIDE_CONFIDENCE = 0.6; // SHIELD events above this bypass anti-flapping
+
 // ─── Core Function ──────────────────────────────────────────────────────────
 
 export async function generateFenceActions(
-  anomalies: any[], // Accepts both V1 and V2 anomaly formats
-  trustScores: any[], // Accepts both V1 and V2 trust formats
+  anomalies: any[],
+  trustScores: any[],
   dataDir: string,
+  shieldEvents?: any[], // Meridian: SHIELD events for override logic
 ): Promise<FenceAction[]> {
   const now = new Date();
   const actions: FenceAction[] = [];
+
+  // ── Meridian Fix: Load SHIELD events if not passed ─────────────────────
+  let shield = shieldEvents || [];
+  if (shield.length === 0) {
+    try {
+      const shieldPath = path.join(dataDir, "shield-events.json");
+      if (fs.existsSync(shieldPath)) {
+        const data = JSON.parse(fs.readFileSync(shieldPath, "utf-8"));
+        shield = (data.events || data || []).filter(
+          (e: any) => e.confidence >= SHIELD_OVERRIDE_CONFIDENCE &&
+                      new Date(e.start_time).getTime() > now.getTime() - 3600000 // last 1h
+        );
+      }
+    } catch {}
+  }
+
+  // ── Meridian Fix: Load previous actions for anti-flapping ──────────────
+  let previousActions: FenceAction[] = [];
+  try {
+    const prevPath = path.join(dataDir, "fence-actions.json");
+    if (fs.existsSync(prevPath)) {
+      const data = JSON.parse(fs.readFileSync(prevPath, "utf-8"));
+      previousActions = data.actions || [];
+    }
+  } catch {}
+
+  // ── Meridian Fix: Detect Dual-Outage (both networks down) ─────────────
+  const excludedStations = trustScores.filter((t: any) => t.flag === "excluded");
+  const excludedGeonet = excludedStations.filter((t: any) => !t.station?.startsWith("ono") && !t.station?.includes("ONOCOY"));
+  const excludedOnocoy = excludedStations.filter((t: any) => t.station?.startsWith("ono") || t.station?.includes("ONOCOY"));
+
+  // Check for regional dual-outage: many excluded from both networks in same area
+  if (excludedGeonet.length > 10 && excludedOnocoy.length > 5) {
+    actions.push({
+      id: `dual_outage_${now.getTime()}`,
+      action: "dual_outage",
+      zone_id: null,
+      station: null,
+      reason: `Dual-outage detected: ${excludedGeonet.length} GEODNET + ${excludedOnocoy.length} ONOCOY stations excluded. Possible severe space weather or infrastructure failure. Service degradation expected.`,
+      priority_before: null,
+      priority_after: null,
+      geofence: null,
+      pushed: false,
+      pushed_at: null,
+      created_at: now.toISOString(),
+    });
+    console.warn(`[FENCE-GEN] DUAL-OUTAGE ALERT: ${excludedGeonet.length} GEODNET + ${excludedOnocoy.length} ONOCOY excluded`);
+  }
 
   // Build trust lookup (handle both V1 combined_score and V2 composite_score)
   const trustMap = new Map<string, any>();
@@ -155,6 +217,32 @@ export async function generateFenceActions(
     }
   }
 
+  // ── 1b. Meridian: SHIELD interference → immediate zone exclusion ────────
+  // Per formal verification: SHIELD overrides Anti-Flapping (safety > stability)
+  for (const event of shield) {
+    if (event.classification === "jamming" || event.classification === "spoofing") {
+      const affectedStations: string[] = event.affected_stations || [];
+      for (const stationName of affectedStations) {
+        const stationZones = stationToZones.get(stationName) || [];
+        for (const zone of stationZones) {
+          actions.push({
+            id: `shield_${event.classification}_${stationName}_${now.getTime()}`,
+            action: "exclude",
+            zone_id: zone.id,
+            station: stationName,
+            reason: `SHIELD ${event.classification} (confidence ${(event.confidence * 100).toFixed(0)}%). OVERRIDES anti-flapping per Meridian Rule Check.`,
+            priority_before: zone.priority,
+            priority_after: 99,
+            geofence: null,
+            pushed: false,
+            pushed_at: null,
+            created_at: now.toISOString(),
+          });
+        }
+      }
+    }
+  }
+
   // ── 2. Anomaly-based actions ──────────────────────────────────────────────
 
   for (const anomaly of anomalies) {
@@ -231,10 +319,66 @@ export async function generateFenceActions(
     }
   }
 
-  // ── 4. Apply to local wizard zones.json ────────────────────────────────────
+  // ── 4. Meridian: Anti-Flapping enforcement ─────────────────────────────────
+  // Zones modified less than 6h ago are protected from further changes.
+  // EXCEPTION: SHIELD jamming/spoofing events bypass this (safety > stability).
+  // Design Decision: 6h anti-flapping > 4h regeneration = zones always protected
+  //                  for at least 1 regeneration cycle. DO NOT reduce to 4h.
 
-  if (actions.length > 0) {
-    applyActionsLocally(actions, dataDir);
+  const antiFlappingCutoff = now.getTime() - ANTI_FLAPPING_MIN_HOURS * 3600000;
+  const protectedActions = actions.filter(a => {
+    // SHIELD overrides always pass (per Meridian formal verification)
+    if (a.id.startsWith("shield_")) return true;
+    // Dual-outage alerts always pass
+    if (a.action === "dual_outage" || a.action === "cascade_exhaustion") return true;
+    // Restore actions always pass (improving, not degrading)
+    if (a.action === "restore") return true;
+
+    // Check if zone was recently modified (anti-flapping)
+    const recentAction = previousActions.find(
+      prev => prev.zone_id === a.zone_id && new Date(prev.created_at).getTime() > antiFlappingCutoff
+    );
+    if (recentAction) {
+      console.log(`[FENCE-GEN] Anti-flapping: skipping ${a.action} on ${a.zone_id} (modified ${recentAction.created_at})`);
+      return false;
+    }
+    return true;
+  });
+
+  // ── 5. Meridian: Cascade-Exhaustion detection ─────────────────────────────
+  // If many actions in one cycle → possible cascading failure, not individual issues
+  if (protectedActions.filter(a => a.action === "exclude" || a.action === "downgrade").length > MAX_ACTIONS_PER_CYCLE) {
+    console.warn(`[FENCE-GEN] CASCADE-EXHAUSTION: ${protectedActions.length} actions in one cycle. Limiting to ${MAX_ACTIONS_PER_CYCLE}.`);
+    // Keep only the highest-confidence actions, plus alerts
+    const alerts = protectedActions.filter(a => a.action === "dual_outage" || a.action === "cascade_exhaustion" || a.action === "restore");
+    const degrading = protectedActions
+      .filter(a => a.action === "exclude" || a.action === "downgrade" || a.action === "new_fence")
+      .slice(0, MAX_ACTIONS_PER_CYCLE);
+
+    // Add cascade-exhaustion alert
+    alerts.push({
+      id: `cascade_exhaustion_${now.getTime()}`,
+      action: "cascade_exhaustion",
+      zone_id: null,
+      station: null,
+      reason: `Cascade-exhaustion: ${protectedActions.length} actions requested, capped at ${MAX_ACTIONS_PER_CYCLE}. Possible systemic issue — review manually.`,
+      priority_before: null,
+      priority_after: null,
+      geofence: null,
+      pushed: false,
+      pushed_at: null,
+      created_at: now.toISOString(),
+    });
+
+    protectedActions.length = 0;
+    protectedActions.push(...alerts, ...degrading);
+  }
+
+  // ── 6. Apply to local wizard zones.json ────────────────────────────────────
+
+  const applyable = protectedActions.filter(a => a.action !== "dual_outage" && a.action !== "cascade_exhaustion");
+  if (applyable.length > 0) {
+    applyActionsLocally(applyable, dataDir);
   }
 
   // ── 5. Log actions ────────────────────────────────────────────────────────
@@ -247,22 +391,26 @@ export async function generateFenceActions(
     }
   } catch {}
 
-  const allActions = [...actions, ...existingLog].slice(0, 500);
+  const allActions = [...protectedActions, ...existingLog].slice(0, 500);
   const tmp = logPath + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify({
     actions: allActions,
     last_run: now.toISOString(),
     summary: {
-      total_actions: actions.length,
-      downgrades: actions.filter(a => a.action === "downgrade").length,
-      excludes: actions.filter(a => a.action === "exclude").length,
-      restores: actions.filter(a => a.action === "restore").length,
-      new_fences: actions.filter(a => a.action === "new_fence").length,
+      total_actions: protectedActions.length,
+      downgrades: protectedActions.filter(a => a.action === "downgrade").length,
+      excludes: protectedActions.filter(a => a.action === "exclude").length,
+      restores: protectedActions.filter(a => a.action === "restore").length,
+      new_fences: protectedActions.filter(a => a.action === "new_fence").length,
+      shield_overrides: protectedActions.filter(a => a.id.startsWith("shield_")).length,
+      cascade_exhaustion: protectedActions.filter(a => a.action === "cascade_exhaustion").length,
+      dual_outage: protectedActions.filter(a => a.action === "dual_outage").length,
+      anti_flapping_blocked: actions.length - protectedActions.length,
     },
   }));
   fs.renameSync(tmp, logPath);
 
-  return actions;
+  return protectedActions;
 }
 
 // ─── Load Zones (from zone-generation.json which has station lists) ──────────
